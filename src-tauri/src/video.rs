@@ -154,7 +154,7 @@ pub(crate) async fn fetch_video_info_from_tmdb(video_name: &String) -> Result<St
                         "original_title": cleaned_name,
                         "overview": "未找到匹配的电影信息",
                         "release_date": "",
-                        "poster_path": "/src/assets/no-poster.png",
+                        "poster_path": "/assets/no-poster.png",
                         "vote_average": 0.0,
                         "genres": "未分类",
                     });
