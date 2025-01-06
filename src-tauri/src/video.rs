@@ -1,4 +1,7 @@
-use crate::log_debug;
+use std::env;
+
+use crate::api;
+use crate::{ log_debug, log_error, log_info };
 use regex::Regex;
 
 /// 清理视频文件名以获得更好的搜索结果
@@ -78,6 +81,133 @@ pub(crate) fn clean_video_name(filename: &str) -> String {
     
     log_debug!("Original: {}\nCleaned: {}", filename, best_result);
     best_result
+}
+
+/// 从 TMDb API 获取视频信息并过滤结果
+/// 
+/// # 参数
+/// * `video_name` - 视频名称
+/// 
+/// # 返回
+/// * `Result<String, String>` - 成功返回过滤后的单个视频信息，失败返回错误信息
+pub(crate) async fn fetch_video_info_from_tmdb(video_name: &String) -> Result<String, String> {
+    let cleaned_name = clean_video_name(&video_name);
+    log_info!("************Searching for: {}************", cleaned_name);
+
+    let api_key = env::var("TMDB_API_KEY").unwrap_or_else(|_| String::from("default_key"));
+
+    let url = format!(
+        "https://api.themoviedb.org/3/search/movie?api_key={}&query={}&language=zh-CN",
+        api_key,
+        cleaned_name
+    );
+    log_debug!("API URL: {}", url);
+    match api::get_data(&url).await {
+        Ok(response) => {
+            let json: serde_json::Value = serde_json::from_str(&response)
+                .map_err(|e| e.to_string())?;
+            log_debug!("API Response: {}", response);
+            // 获取结果数组
+            if let Some(results) = json.get("results").and_then(|v| v.as_array()) {
+                // 查找最匹配的结果
+                let best_match = results.iter().find(|movie| {
+                    // 获取标题（优先使用中文标题）
+                    let title = movie.get("title").and_then(|t| t.as_str()).unwrap_or("");
+                    let original_title = movie.get("original_title").and_then(|t| t.as_str()).unwrap_or("");
+                    
+                    // 简单的相似度匹配（可以根据需要调整匹配逻辑）
+                    title.to_lowercase().contains(&cleaned_name.to_lowercase()) ||
+                    original_title.to_lowercase().contains(&cleaned_name.to_lowercase())
+                }).or_else(|| results.first()); // 如果没有找到匹配的，则返回第一个结果
+
+                if let Some(movie) = best_match {
+                    log_info!("Found match: {}", serde_json::to_string_pretty(&movie).unwrap());
+
+                    // 获取电影的类型ID
+                    let genre_ids = movie.get("genre_ids")
+                    .and_then(|ids| ids.as_array())
+                    .map(|ids| ids.iter()
+                        .filter_map(|id| id.as_i64())
+                        .collect::<Vec<i64>>())
+                    .unwrap_or_default();
+
+                    // 获取类型名称
+                    let genres = get_genre_names(&genre_ids).await?;
+
+                    // 构建我们需要的信息
+                    let filtered_info = serde_json::json!({
+                        "title": movie.get("title").and_then(|t| t.as_str()).unwrap_or(""),
+                        "original_title": movie.get("original_title").and_then(|t| t.as_str()).unwrap_or(""),
+                        "overview": movie.get("overview").and_then(|t| t.as_str()).unwrap_or(""),
+                        "release_date": movie.get("release_date").and_then(|t| t.as_str()).unwrap_or(""),
+                        "poster_path": movie.get("poster_path").and_then(|t| t.as_str())
+                            .map(|path| format!("https://image.tmdb.org/t/p/w500{}", path))
+                            .unwrap_or_default(),
+                        "vote_average": movie.get("vote_average").and_then(|t| t.as_f64()).unwrap_or(0.0),
+                        "genres": genres,
+                    });
+                    
+                    return Ok(serde_json::to_string(&filtered_info).unwrap());
+                } else {
+                    let filtered_info = serde_json::json!({
+                        "title": cleaned_name,
+                        "original_title": cleaned_name,
+                        "overview": "未找到匹配的电影信息",
+                        "release_date": "",
+                        "poster_path": "",
+                        "vote_average": 0.0,
+                        "genres": "未分类",
+                    });
+                    return Ok(serde_json::to_string(&filtered_info).unwrap());
+                }
+            }
+            
+            Err("No matching movie found".to_string())
+        },
+        Err(e) => {
+            log_error!("API Error: {}", e);
+            Err(e.to_string())
+        }
+    }
+}
+
+// 获取类型名称的辅助函数
+pub(crate) async fn get_genre_names(genre_ids: &[i64]) -> Result<String, String> {
+
+    let api_key = env::var("TMDB_API_KEY").unwrap_or_else(|_| String::from("default_key"));
+
+    let url = format!(
+        "https://api.themoviedb.org/3/genre/movie/list?api_key={}&language=zh-CN",
+        api_key
+    );
+    
+    match api::get_data(&url).await {
+        Ok(response) => {
+            let json: serde_json::Value = serde_json::from_str(&response)
+                .map_err(|e| e.to_string())?;
+            
+            if let Some(genres) = json.get("genres").and_then(|v| v.as_array()) {
+                let genre_names: Vec<String> = genres.iter()
+                    .filter(|genre| {
+                        genre.get("id")
+                            .and_then(|id| id.as_i64())
+                            .map(|id| genre_ids.contains(&id))
+                            .unwrap_or(false)
+                    })
+                    .filter_map(|genre| {
+                        genre.get("name")
+                            .and_then(|name| name.as_str())
+                            .map(String::from)
+                    })
+                    .collect();
+                
+                Ok(genre_names.join("、"))
+            } else {
+                Ok("未分类".to_string())
+            }
+        },
+        Err(e) => Err(e.to_string())
+    }
 }
 
 pub struct SeriesInfo {

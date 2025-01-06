@@ -1,6 +1,6 @@
 use crate::{log_info, log_debug};
 
-use rusqlite::{Connection, params, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use std::fs;
 use std::sync::{Mutex, Arc};
 use tauri::{AppHandle, Manager};
@@ -101,6 +101,22 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection> {
     Ok(conn)
 }
 
+/// 通用执行查询方法
+// fn execute_query(conn: &Connection, query: &str, params: &[&dyn rusqlite::ToSql]) -> Result<()> {
+//     conn.execute(query, params)?; // 执行无返回值的SQL查询
+//     Ok(())
+// }
+
+/// 通用单行查询方法
+fn fetch_single_row<T>(
+    conn: &Connection,
+    query: &str,
+    params: &[&dyn rusqlite::ToSql],
+    mapper: impl Fn(&rusqlite::Row) -> Result<T, rusqlite::Error>,
+) -> Result<Option<T>> {
+    conn.query_row(query, params, |row| mapper(row)).optional() // 处理单行查询结果
+}
+
 /// 向数据库插入视频信息
 /// 
 /// # 参数
@@ -149,11 +165,10 @@ pub fn insert_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
 /// # 返回
 /// * `bool` - 存在返回true，不存在返回false
 pub fn video_exists(conn: &Connection, id: &str) -> bool {
-    conn.query_row(
-        "SELECT 1 FROM videos WHERE id = ?1",
-        params![id],
-        |_| Ok(true)
-    ).unwrap_or(false)
+    // conn.query_row("SELECT 1 FROM videos WHERE id = ?1", params![id], |_| Ok(true)).unwrap_or(false);
+    fetch_single_row(&conn, "SELECT 1 FROM videos WHERE id = ?", &[&id], |_| Ok(()))
+        .map(|opt| opt.is_some())
+        .unwrap_or(false) // 查询是否存在记录
 }
 
 /// 获取所有视频
@@ -195,4 +210,12 @@ pub fn get_all_videos(conn: &Connection) -> Result<Vec<VideoInfo>, rusqlite::Err
     .collect::<Result<Vec<_>, _>>()?;
 
     Ok(videos)
-} 
+}
+
+pub fn delete_video(conn: &Connection, id: &str) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM videos WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
+}

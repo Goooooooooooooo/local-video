@@ -79,7 +79,15 @@ function createVideoCard(video: VideoInfo): HTMLElement {
         <span class="video-category">${video.category}</span>
       </div>
     </div>
+    <div class="close-button" title="Close">×</div>
   `;
+
+  const cardCloseButton = card.querySelector('.close-button');
+  cardCloseButton?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await invoke('remove_video', { id: video.id });
+    card.remove();
+  });
 
   // 播放按钮点击事件
   const cardPlayButton = card.querySelector('.card-play-button');
@@ -248,8 +256,10 @@ async function saveSettings() {
       player_type: playerType 
     } 
   });
-
   alert('设置已保存');
+  let settingModal = document.querySelector('div.modal.active');
+  if (settingModal)
+    document.body.removeChild(settingModal);
 }
 
 // 加载设置

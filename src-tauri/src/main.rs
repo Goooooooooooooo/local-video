@@ -7,12 +7,16 @@ mod logger;
 
 use walkdir::WalkDir;
 use tauri::{Manager, State};
-use db::{DbState, VideoInfo, init_db, insert_video, video_exists, get_all_videos};
-use std::sync::{Mutex, Arc};
-use video::{clean_video_name, parse_series_info};
-use std::process::Command;
+use db::{delete_video, get_all_videos, init_db, insert_video, video_exists, DbState, VideoInfo};
+use std::{
+    env, 
+    fs,
+    fs::File, 
+    io::{self, BufRead},
+    sync::{Mutex, Arc}, 
+    process::Command};
+use video::{fetch_video_info_from_tmdb, parse_series_info};
 use serde::{Deserialize, Serialize};
-use std::fs;
 
 // 导出日志宏
 pub use crate::logger::{log_error, log_info, log_debug};
@@ -72,7 +76,7 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
             } else {
                 &file_name
             };
-
+            
             // 获取 TMDb 信息
             match fetch_video_info_from_tmdb(search_name).await {
                 Ok(video_info_str) => {
@@ -105,7 +109,7 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
                                     season: series_info.season,
                                     episode: series_info.episode,
                                 };
-                                log_debug!("video: {:?}", video);
+
                                 insert_video(&conn, &video).map_err(|e| e.to_string())?;
                                 new_videos.lock().unwrap().push(video);
                                 Ok::<_, String>(())
@@ -153,117 +157,7 @@ async fn get_cached_videos(db: State<'_, DbState>) -> Result<Vec<VideoInfo>, Str
     get_all_videos(&conn).map_err(|e| e.to_string())
 }
 
-/// 从 TMDb API 获取视频信息并过滤结果
-/// 
-/// # 参数
-/// * `video_name` - 视频名称
-/// 
-/// # 返回
-/// * `Result<String, String>` - 成功返回过滤后的单个视频信息，失败返回错误信息
-#[tauri::command]
-async fn fetch_video_info_from_tmdb(video_name: &String) -> Result<String, String> {
-    let cleaned_name = clean_video_name(&video_name);
 
-    log_info!("************Searching for: {}************", cleaned_name);
-    let url = format!(
-        "https://api.themoviedb.org/3/search/movie?api_key={}&query={}&language=zh-CN",
-        "c1aca3c36b4dbc238a502753b4619473",
-        cleaned_name
-    );
-    log_debug!("API URL: {}", url);
-    match api::get_data(&url).await {
-        Ok(response) => {
-            let json: serde_json::Value = serde_json::from_str(&response)
-                .map_err(|e| e.to_string())?;
-            log_debug!("API Response: {}", response);
-            // 获取结果数组
-            if let Some(results) = json.get("results").and_then(|v| v.as_array()) {
-                // 查找最匹配的结果
-                let best_match = results.iter().find(|movie| {
-                    // 获取标题（优先使用中文标题）
-                    let title = movie.get("title").and_then(|t| t.as_str()).unwrap_or("");
-                    let original_title = movie.get("original_title").and_then(|t| t.as_str()).unwrap_or("");
-                    
-                    // 简单的相似度匹配（可以根据需要调整匹配逻辑）
-                    title.to_lowercase().contains(&cleaned_name.to_lowercase()) ||
-                    original_title.to_lowercase().contains(&cleaned_name.to_lowercase())
-                }).or_else(|| results.first()); // 如果没有找到匹配的，则返回第一个结果
-
-                if let Some(movie) = best_match {
-                    log_info!("Found match: {}", serde_json::to_string_pretty(&movie).unwrap());
-
-                    // 获取电影的类型ID
-                    let genre_ids = movie.get("genre_ids")
-                    .and_then(|ids| ids.as_array())
-                    .map(|ids| ids.iter()
-                        .filter_map(|id| id.as_i64())
-                        .collect::<Vec<i64>>())
-                    .unwrap_or_default();
-
-                    // 获取类型名称
-                    let genres = get_genre_names(&genre_ids).await?;
-
-                    // 构建我们需要的信息
-                    let filtered_info = serde_json::json!({
-                        "title": movie.get("title").and_then(|t| t.as_str()).unwrap_or(""),
-                        "original_title": movie.get("original_title").and_then(|t| t.as_str()).unwrap_or(""),
-                        "overview": movie.get("overview").and_then(|t| t.as_str()).unwrap_or(""),
-                        "release_date": movie.get("release_date").and_then(|t| t.as_str()).unwrap_or(""),
-                        "poster_path": movie.get("poster_path").and_then(|t| t.as_str())
-                            .map(|path| format!("https://image.tmdb.org/t/p/w500{}", path))
-                            .unwrap_or_default(),
-                        "vote_average": movie.get("vote_average").and_then(|t| t.as_f64()).unwrap_or(0.0),
-                        "genres": genres,
-                    });
-                    
-                    return Ok(serde_json::to_string(&filtered_info).unwrap());
-                }
-            }
-            
-            Err("No matching movie found".to_string())
-        },
-        Err(e) => {
-            log_error!("API Error: {}", e);
-            Err(e.to_string())
-        }
-    }
-}
-
-// 获取类型名称的辅助函数
-async fn get_genre_names(genre_ids: &[i64]) -> Result<String, String> {
-    let url = format!(
-        "https://api.themoviedb.org/3/genre/movie/list?api_key={}&language=zh-CN",
-        "c1aca3c36b4dbc238a502753b4619473"
-    );
-    
-    match api::get_data(&url).await {
-        Ok(response) => {
-            let json: serde_json::Value = serde_json::from_str(&response)
-                .map_err(|e| e.to_string())?;
-            
-            if let Some(genres) = json.get("genres").and_then(|v| v.as_array()) {
-                let genre_names: Vec<String> = genres.iter()
-                    .filter(|genre| {
-                        genre.get("id")
-                            .and_then(|id| id.as_i64())
-                            .map(|id| genre_ids.contains(&id))
-                            .unwrap_or(false)
-                    })
-                    .filter_map(|genre| {
-                        genre.get("name")
-                            .and_then(|name| name.as_str())
-                            .map(String::from)
-                    })
-                    .collect();
-                
-                Ok(genre_names.join("、"))
-            } else {
-                Ok("未分类".to_string())
-            }
-        },
-        Err(e) => Err(e.to_string())
-    }
-}
 
 #[tauri::command]
 async fn play_video(path: String, app_handle: tauri::AppHandle) -> Result<(), String> {
@@ -342,6 +236,15 @@ async fn load_settings(app_handle: tauri::AppHandle) -> Result<Settings, String>
     }
 }
 
+#[tauri::command]
+fn remove_video(db: State<'_, DbState>, id: String) -> Result<(), String> {
+    let conn = match db.0.try_lock() {
+        Ok(lock) => lock,
+        Err(_) => return Err("Failed to acquire database lock".to_string()),
+    };
+    delete_video(&conn, &id).map_err(|e| e.to_string())
+}
+
 // fn get_video_duration(path: &str) -> Result<String, String> {
     // let path = Path::new(path);
     // let decoder = Decoder::new(path).map_err(|e| e.to_string())?;
@@ -359,14 +262,37 @@ async fn load_settings(app_handle: tauri::AppHandle) -> Result<Settings, String>
     // }
 // }
 
+/// 读取 .env 文件并设置环境变量
+fn load_env_from_file(file_path: &str) -> io::Result<()> {
+    println!("file_path: {:?}", file_path);
+    let file = File::open(file_path)?;
+    let reader = io::BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line?;
+
+        // 跳过空行或注释行
+        if line.trim().is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // 解析键值对
+        if let Some((key, value)) = line.split_once('=') {
+            env::set_var(key.trim(), value.trim());
+        }
+    }
+    Ok(())
+}
+
 fn main() {
     logger::init_logger().expect("Failed to initialize logger");
     logger::set_log_level(logger::LogLevel::DEBUG);
+    load_env_from_file("./video.env").expect("Failed to load .env file");  // 加载 .env 文件
     tauri::Builder::default()
         .setup(|app| {
-            let handle = app.app_handle();
-            let conn = init_db(&handle).expect("Database initialization failed");
-            app.manage(DbState(Arc::new(Mutex::new(conn))));
+            let handle = app.app_handle();  // 获取应用句柄
+            let conn = init_db(&handle).expect("Database initialization failed");   // 初始化数据库
+            app.manage(DbState(Arc::new(Mutex::new(conn))));    // 将数据库连接状态传递给应用
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -374,6 +300,7 @@ fn main() {
             scan_folder,
             get_cached_videos,
             play_video,
+            remove_video,
             save_settings,
             load_settings
         ])

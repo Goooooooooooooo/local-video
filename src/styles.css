@@ -108,8 +108,32 @@ body {
   transition: opacity 0.2s;
 }
 
-.video-card:hover .card-play-button {
+.video-card:hover .card-play-button,
+.video-card:hover .close-button{
   opacity: 1;
+}
+
+.close-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  opacity: 0;
+}
+
+.close-button:hover {
+  background: rgba(255, 0, 0, 0.8);
 }
 
 .card-play-button::after {
