@@ -39,7 +39,9 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
         .filter_map(|e| e.ok())
         .filter(|e| {
             if let Some(ext) = e.path().extension() {
-                VIDEO_EXTENSIONS.contains(&ext.to_string_lossy().to_lowercase().as_str())
+                // 忽略非视频文件和示例视频
+                VIDEO_EXTENSIONS.contains(&ext.to_string_lossy().to_lowercase().as_str()) &&
+                !e.file_name().to_string_lossy().to_ascii_lowercase().contains("sample")
             } else {
                 false
             }
@@ -264,7 +266,6 @@ fn remove_video(db: State<'_, DbState>, id: String) -> Result<(), String> {
 
 /// 读取 .env 文件并设置环境变量
 fn load_env_from_file(file_path: &str) -> io::Result<()> {
-    println!("file_path: {:?}", file_path);
     let file = File::open(file_path)?;
     let reader = io::BufReader::new(file);
 
