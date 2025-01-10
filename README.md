@@ -13,7 +13,9 @@ This template should help get you started developing with Tauri in vanilla HTML,
 
 ### 设置：
 默认播放器：VLC
+
 自动加载字幕
+
 自动从TMDB匹配视频信息
 ![image](https://github.com/user-attachments/assets/03f6fcb0-3d24-4836-b150-a8feeb26b1a2)
 
