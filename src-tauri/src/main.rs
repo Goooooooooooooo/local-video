@@ -11,11 +11,11 @@ use tauri::{Manager, State};
 use db::{DbState, VideoInfo};
 use std::{
     env, 
-    fs,
-    fs::File, 
+    fs::{self, File}, 
     io::{self, BufRead},
-    sync::{Mutex, Arc}, 
-    process::Command};
+    process::Command, 
+    sync::{Arc, Mutex}
+};
 use serde::{Deserialize, Serialize};
 
 // 导出日志宏
@@ -23,7 +23,7 @@ pub use crate::logger::{log_error, log_info, log_debug};
 
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov"];
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Settings {
     player_path: Option<String>,
     player_type: Option<String>,
@@ -41,6 +41,8 @@ struct Settings {
      * por - 葡萄牙语 (Portuguese)
      */
     subtitle_language: Option<String>, // 添加字幕语言字段
+    tmdb_api_key: Option<String>,
+    auto_tmdb: Option<bool>,
 }
 
 struct AppState {
@@ -48,7 +50,7 @@ struct AppState {
 }
 
 #[tauri::command]
-async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoInfo>, String> {
+async fn scan_folder(path: String, db: State<'_, DbState>, settings: Settings) -> Result<Vec<VideoInfo>, String> {
     let db = db.0.clone();
     let new_videos = Arc::new(Mutex::new(Vec::new()));
 
@@ -87,7 +89,6 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
-            let file_name_clone = file_name.clone();
             
             // 解析剧集信息
             let series_info = video::parse_series_info(&file_name);
@@ -96,63 +97,70 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
             } else {
                 &file_name
             };
-
             
             // 获取视频时长
             let formatted_duration = video::get_duration(&path.to_string_lossy());
-
-            // 获取 TMDb 信息
-            match video::fetch_video_info_from_tmdb(search_name).await {
-                Ok(video_info_str) => {
-                    log_debug!("video_info_str: {}", video_info_str);
-                    match serde_json::from_str::<serde_json::Value>(&video_info_str) {
-                        Ok(video_info) => {
-                            let db_clone = db.clone();
-                            let id_clone = id.clone();
-                            let new_videos = new_videos.clone();
-                            
-
-                            if let Err(e) = tokio::task::spawn_blocking(move || {
-                                let conn = db_clone.lock().unwrap();
-                                let video = VideoInfo {
-                                    id: id_clone,
-                                    title: video_info.get("original_title").and_then(|v| v.as_str()).unwrap_or(&file_name).to_string(),
-                                    title_cn: video_info.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                    thumbnail: video_info.get("poster_path").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                    duration: formatted_duration.unwrap_or_else(|_| "Unknown".to_string()),
-                                    path: path.to_string_lossy().to_string(),
-                                    category: if series_info.is_series { "剧集" } else { "电影" }.to_string(),
-                                    description: video_info.get("overview").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                    create_time: chrono::Utc::now().timestamp(),
-                                    last_play_time: 0,
-                                    play_count: 0,
-                                    favorite: false,
-                                    tags: video_info.get("genres").and_then(|v| v.as_str()).unwrap_or("未分类").to_string(),
-                                    is_series: series_info.is_series,
-                                    series_title: series_info.series_title,
-                                    season: series_info.season,
-                                    episode: series_info.episode,
-                                };
-
-                                db::insert_video(&conn, &video).map_err(|e| e.to_string())?;
-                                new_videos.lock().unwrap().push(video);
-                                Ok::<_, String>(())
-                            }).await {
-                                log_error!("Failed to process video {}: {}", file_name_clone, e);
-                                continue;
-                            }
-                        }
-                        Err(e) => {
-                            log_error!("Failed to parse video info for {}: {}", file_name, e);
-                            continue;
-                        }
-                    }
-                }
-                Err(e) => {
-                    log_error!("Failed to fetch TMDb info for {}: {}", search_name, e);
-                    continue;
+            
+            let mut video_info_str = String::new();
+            if settings.auto_tmdb.unwrap_or(false) {
+                // 获取 TMDb 信息
+                if let Some(ref api_key) = settings.tmdb_api_key {
+                    video_info_str = video::fetch_video_info_from_tmdb(&search_name, api_key).await?;
                 }
             }
+
+            log_debug!("video_info_str: {}", video_info_str);
+            if video_info_str.is_empty() {
+                video_info_str = serde_json::json!({
+                    "title": search_name,
+                    "original_title": search_name,
+                    "overview": "未找到匹配的电影信息",
+                    "release_date": "",
+                    "poster_path": "/assets/no-poster.png",
+                    "vote_average": 0.0,
+                    "genres": "未分类",
+                }).to_string();
+            }
+            let video_info = match serde_json::from_str::<serde_json::Value>(&video_info_str) {
+                Ok(info) => info,
+                Err(e) => {
+                    log_error!("Failed to parse video info: {}", e);
+                    continue;
+                }
+            };
+            let video = VideoInfo {
+                id: id,
+                title: video_info.get("original_title").and_then(|v| v.as_str()).unwrap_or(&file_name).to_string(),
+                title_cn: video_info.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                thumbnail: video_info.get("poster_path").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                duration: formatted_duration.unwrap_or_else(|_| "Unknown".to_string()),
+                path: path.to_string_lossy().to_string(),
+                category: if series_info.is_series { "剧集" } else { "电影" }.to_string(),
+                description: video_info.get("overview").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                create_time: chrono::Utc::now().timestamp(),
+                last_play_time: 0,
+                play_count: 0,
+                favorite: false,
+                tags: video_info.get("genres").and_then(|v| v.as_str()).unwrap_or("未分类").to_string(),
+                is_series: series_info.is_series,
+                series_title: series_info.series_title,
+                season: series_info.season,
+                episode: series_info.episode,
+            };
+
+            let binding = db.clone();
+            let new_videos_clone = new_videos.clone();
+            match tokio::task::spawn_blocking(move || {
+                let conn = binding.lock().unwrap();
+                let _ = db::insert_video(&conn, &video);
+                new_videos_clone.lock().unwrap().push(video);
+            }).await {
+                Ok(result) => result,
+                Err(e) => {
+                    log_error!("Failed to check video existence: {}", e);
+                    continue;
+                }
+            };
         }
     }
 
@@ -164,9 +172,13 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
 }
 
 #[tauri::command]
-async fn select_and_scan_folder(db: State<'_, DbState>) -> Result<Vec<VideoInfo>, String> {
+async fn select_and_scan_folder(app_state: State<'_, AppState>, db: State<'_, DbState>) -> Result<Vec<VideoInfo>, String> {
     if let Some(path) = rfd::FileDialog::new().pick_folder() {
-        scan_folder(path.to_string_lossy().to_string(), db).await
+        let settings = {
+            let settings_guard = app_state.settings.lock().unwrap();
+            settings_guard.clone()
+        };
+        scan_folder(path.to_string_lossy().to_string(), db, settings).await
     } else {
         Ok(vec![]) // 用户取消选择
     }
@@ -287,6 +299,8 @@ async fn load_settings(app_handle: tauri::AppHandle) -> Result<Settings, String>
             player_type: Some("system".to_string()),
             auto_subtitle: Some(true),
             subtitle_language: Some("eng".to_string()),
+            tmdb_api_key: None,
+            auto_tmdb: Some(false),
         })
     }
 }
@@ -340,11 +354,17 @@ fn load_env_from_file(file_path: &str) -> io::Result<()> {
 fn main() {
     logger::init_logger().expect("Failed to initialize logger");
     logger::set_log_level(logger::LogLevel::DEBUG);
-    load_env_from_file("./video.env").expect("Failed to load .env file");  // 加载 .env 文件
+
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.app_handle();  // 获取应用句柄
 
+            // 加载 .env 文件
+            if let Err(e) = load_env_from_file("./video.env") {
+                log_error!("{}", format!("Failed to load video.env file: {}", e));
+            }
+
+            // 初始化数据库
             let conn = db::init_db(&handle).expect("Database initialization failed");   // 初始化数据库
             let db_state = DbState(Arc::new(Mutex::new(conn)));
             app.manage(db_state);

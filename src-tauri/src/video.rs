@@ -1,5 +1,5 @@
 // Module: video
-use std::{env, fs};
+use std::{fs};
 use std::path::{Path, PathBuf};
 use crate::db::VideoInfo;
 use crate::{api, metadata};
@@ -196,11 +196,9 @@ pub(crate) fn clean_video_name(filename: &str) -> String {
 /// 
 /// # 返回
 /// * `Result<String, String>` - 成功返回过滤后的单个视频信息，失败返回错误信息
-pub(crate) async fn fetch_video_info_from_tmdb(video_name: &String) -> Result<String, String> {
+pub(crate) async fn fetch_video_info_from_tmdb(video_name: &String, api_key: &String) -> Result<String, String> {
     let cleaned_name = clean_video_name(&video_name);
     log_info!("************Searching for: {}************", cleaned_name);
-
-    let api_key = env::var("TMDB_API_KEY").unwrap_or_else(|_| String::from("default_key"));
 
     let url = format!(
         "https://api.themoviedb.org/3/search/movie?api_key={}&query={}&language=zh-CN",
@@ -238,7 +236,7 @@ pub(crate) async fn fetch_video_info_from_tmdb(video_name: &String) -> Result<St
                     .unwrap_or_default();
 
                     // 获取类型名称
-                    let genres = get_genre_names(&genre_ids).await?;
+                    let genres = get_genre_names(&genre_ids, api_key).await?;
 
                     // 构建我们需要的信息
                     let filtered_info = serde_json::json!({
@@ -278,9 +276,7 @@ pub(crate) async fn fetch_video_info_from_tmdb(video_name: &String) -> Result<St
 }
 
 // 获取类型名称的辅助函数
-pub(crate) async fn get_genre_names(genre_ids: &[i64]) -> Result<String, String> {
-
-    let api_key = env::var("TMDB_API_KEY").unwrap_or_else(|_| String::from("default_key"));
+pub(crate) async fn get_genre_names(genre_ids: &[i64], api_key: &String) -> Result<String, String> {
 
     let url = format!(
         "https://api.themoviedb.org/3/genre/movie/list?api_key={}&language=zh-CN",
@@ -396,7 +392,7 @@ mod tests {
     fn match_sutitles() {
         let temp_file_path = "C:\\Users\\yzok0\\Videos\\Transformers.One.2024.HDR.2160p.WEB.h265-ETHEL[TGx]\\Transformers.One.2024.HDR.2160p.WEB.h265-ETHEL.mkv";
         let subtitle_stem = "Transformers.One.xx.2024.HDR.2160p.WEB.h265-ETHEL.简体.srt";
-        let episode_pattern = regex::Regex::new(r"S\d{2}E\d{2}").ok(); // 匹配剧集编号 SxxExx
+
         let language_keywords = ["zh", "chs", "cn", "cht", "chinese", "chr", "简体", "简中", "繁中"];
         let _language_pattern = regex::Regex::new(&format!(r"({})", language_keywords.join("|"))).ok(); // 匹配语言关键字    
         

@@ -229,8 +229,8 @@ mod tests {
         assert!(result.is_ok());
 
         let episode_pattern = regex::Regex::new(r"S\d{2}E\d{2}").ok(); // 匹配剧集编号 SxxExx
-        let language_keywords = ["zh", "chs", "cn", "cht", "chinese", "chr", "简体", "简中", "繁中"];
-        let language_pattern = regex::Regex::new(&format!(r"({})", language_keywords.join("|"))).ok(); // 匹配语言关键字    
+        // let language_keywords = ["zh", "chs", "cn", "cht", "chinese", "chr", "简体", "简中", "繁中"];
+        // let language_pattern = regex::Regex::new(&format!(r"({})", language_keywords.join("|"))).ok(); // 匹配语言关键字    
 
         if let Some(ep_pattern) = &episode_pattern {
             println!("Episode: {}", ep_pattern.is_match(&temp_file_path));

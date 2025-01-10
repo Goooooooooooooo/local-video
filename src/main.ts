@@ -32,6 +32,8 @@ interface Settings {
     player_type: string;
     auto_subtitle: boolean;
     subtitle_language: string;
+    tmdb_api_key: string;
+    auto_tmdb: boolean;
 }
 
 /** 全局变量：视频列表 */
@@ -281,7 +283,7 @@ function showSettings(): void {
         <div class="form-group">
           <h4>字幕</h4>
           <div class="toggle-settings">
-            <label for="player-path">自动加载字幕<br><span>视频文件同目录的字幕文件夹</span></label>
+            <label for="auto-subtitle">自动加载字幕<br><span>视频文件同目录的字幕文件夹</span></label>
             <label class="toggle-switch">
               <input type="checkbox" id="auto-subtitle">
               <div class="toggle-switch-background">
@@ -303,6 +305,22 @@ function showSettings(): void {
               <option value="por">por - 葡萄牙语 (Portuguese)</option>
               <option value="kor">kor - 韩语 (Korean)</option>
             </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <h4>TMDB 获取视频信息</h4>
+          <div class="toggle-settings">
+            <label for="auto-tmdb">自动获取视频信息<br><span>需要TMDB API KEY</span></label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="auto-tmdb">
+              <div class="toggle-switch-background">
+                <div class="toggle-switch-handle"></div>
+              </div>
+            </label>
+          </div>
+          <div>
+            <label for="tmdb-api-key">API KEY：</label>
+            <input type="text" id="tmdb-api-key" placeholder="TMDB API KEY">
           </div>
         </div>
         <button class="save-settings">保存设置</button>
@@ -343,12 +361,17 @@ async function saveSettings(): Promise<void> {
   const autoSubtitle = (document.getElementById('auto-subtitle') as HTMLInputElement)?.checked;
   const subtitleLanguage = (document.getElementById('subtitle-language') as HTMLSelectElement)?.value;
 
+  const tmdbApiKey = (document.getElementById('tmdb-api-key') as HTMLInputElement)?.value;
+  const auto_tmdb = (document.getElementById('auto-tmdb') as HTMLInputElement)?.checked;
+
   await invoke('save_settings', { 
     settings: { 
       player_path: playerPath, 
       player_type: playerType,
       auto_subtitle: autoSubtitle,
-      subtitle_language: subtitleLanguage
+      subtitle_language: subtitleLanguage,
+      tmdb_api_key: tmdbApiKey,
+      auto_tmdb: auto_tmdb
     } 
   });
 
@@ -369,6 +392,8 @@ async function loadSettings(): Promise<void> {
     (document.getElementById('player-type') as HTMLSelectElement).value = settings.player_type || 'system';
     (document.getElementById('auto-subtitle') as HTMLInputElement).checked = settings.auto_subtitle || false;
     (document.getElementById('subtitle-language') as HTMLSelectElement).value = settings.subtitle_language || 'chi';
+    (document.getElementById('tmdb-api-key') as HTMLInputElement).value = settings.tmdb_api_key || '';
+    (document.getElementById('auto-tmdb') as HTMLInputElement).checked = settings.auto_tmdb || false;
   }
 }
 
