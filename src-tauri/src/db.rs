@@ -183,7 +183,7 @@ pub fn get_all_videos(conn: &Connection) -> Result<Vec<VideoInfo>, rusqlite::Err
         "SELECT id, title, title_cn, thumbnail, duration, path, category, description,
          create_time, last_play_time, play_count, favorite, tags,
          is_series, series_title, season, episode
-         FROM videos"
+         FROM videos ORDER BY title_cn ASC"
     )?;
 
     let videos = stmt.query_map([], |row| {
@@ -216,6 +216,52 @@ pub fn delete_video(conn: &Connection, id: &str) -> Result<(), rusqlite::Error> 
     conn.execute(
         "DELETE FROM videos WHERE id = ?1",
         params![id],
+    )?;
+    Ok(())
+}
+
+pub fn update_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite::Error> {
+    let sql = "
+        UPDATE videos
+        SET 
+            title = COALESCE(:title, title),
+            title_cn = COALESCE(:title_cn, title_cn),
+            thumbnail = COALESCE(:thumbnail, thumbnail),
+            duration = COALESCE(:duration, duration),
+            path = COALESCE(:path, path),
+            category = COALESCE(:category, category),
+            description = COALESCE(:description, description),
+            last_play_time = COALESCE(:last_play_time, last_play_time),
+            play_count = COALESCE(:play_count, play_count),
+            favorite = COALESCE(:favorite, favorite),
+            tags = COALESCE(:tags, tags),
+            is_series = COALESCE(:is_series, is_series),
+            series_title = COALESCE(:series_title, series_title),
+            season = COALESCE(:season, season),
+            episode = COALESCE(:episode, episode)
+        WHERE id = :id;
+    ";
+
+    conn.execute(
+        sql,
+        rusqlite::named_params! {
+            ":id": video.id,
+            ":title": video.title,
+            ":title_cn": video.title_cn,
+            ":thumbnail": video.thumbnail,
+            ":duration": video.duration,
+            ":path": video.path,
+            ":category": video.category,
+            ":description": video.description,
+            ":last_play_time": video.last_play_time,
+            ":play_count": video.play_count,
+            ":favorite": video.favorite,
+            ":tags": video.tags,
+            ":is_series": video.is_series,
+            ":series_title": video.series_title,
+            ":season": video.season,
+            ":episode": video.episode,
+        },
     )?;
     Ok(())
 }

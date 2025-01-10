@@ -1,8 +1,114 @@
-use std::env;
-
-use crate::api;
+// Module: video
+use std::{env, fs};
+use std::path::{Path, PathBuf};
+use crate::db::VideoInfo;
+use crate::{api, metadata};
 use crate::{ log_debug, log_error, log_info };
 use regex::Regex;
+
+pub(crate) fn get_duration(path: &str) -> Result<String, String> {
+    log_debug!("Getting video duration for: {}", path);
+    let duration = match metadata::mkv_metadata(path) {
+        Ok(metadata) => {
+            println!("metadata: {:?}", metadata);
+            metadata.video_duration_seconds
+        },
+        Err(e) => {
+            log_error!("Failed to get video duration: {}", e);
+            0.0
+        }
+    };
+
+    let hours = duration as u64 / 3600;
+    let minutes = duration as u64 % 3600 / 60;
+    let seconds = duration as u64 % 60;
+    log_debug!("Duration: {:02}:{:02}:{:02}", hours, minutes, seconds);
+    Ok(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
+
+}
+
+/// 查找字幕文件
+pub(crate) fn find_subtitles(video: &VideoInfo) -> Result<String, String> {
+    log_debug!("Getting subtitle for: {}", video.path);
+    let current_path = Path::new(&video.path);
+    let current_dir = current_path.parent().expect("Failed to get parent directory");
+    log_debug!("Current directory: {}", current_dir.display());
+    let subtitle_path = current_dir.join("字幕");
+
+    // 遍历目录下的文件
+    let mut subtitles = Vec::new();
+    if let Ok(entries) = fs::read_dir(subtitle_path) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                // 匹配字幕扩展名
+                if let Some(ext) = path.extension() {
+                    if ext == "srt" || ext == "ass" || ext == "vtt" {
+                        subtitles.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(best_subtitle) = choose_best_subtitle(video, subtitles) {
+        log_debug!("Best subtitle: {}", best_subtitle.display());
+        Ok(best_subtitle.to_string_lossy().to_string())
+    } else {
+        log_debug!("No suitable subtitles found.");
+        Err("No suitable subtitles found.".to_string())
+    }
+
+}
+
+/// 根据优先级选择最佳字幕文件
+/// 优先级规则：
+/// 1. 文件名与视频文件名完全匹配（不含扩展名）。
+/// 2. 包含指定语言标记（如 .zh.srt, .chs.srt, .cn.srt）。
+fn choose_best_subtitle(video: &VideoInfo, subtitles: Vec<PathBuf>) -> Option<PathBuf> {
+    let video_stem = Path::new(&video.path).file_stem()?.to_string_lossy();
+    let language_keywords = ["zh", "chs", "cht", "cn", "chinese", "chr", "简体", "简中", "繁中"];
+
+    let series_info = parse_series_info(&video_stem);
+    let mut series_pattern = String::new();
+    if series_info.is_series {
+        series_pattern = format!(
+            "S{:02}E{:02}",
+            series_info.season,
+            series_info.episode,
+        );
+    }
+    log_debug!("video_stem: {:?}", video_stem);
+    log_debug!("episode_pattern: {:?}", series_pattern);
+
+    subtitles.into_iter().max_by_key(|subtitle| {
+        if let Some(subtitle_stem) = subtitle.file_stem().and_then(|s| s.to_str()) {
+            if subtitle_stem == video_stem {
+                3 // 完全匹配得分最高
+            } else {
+                if series_info.is_series {
+                    if subtitle_stem.contains(&series_pattern) 
+                    && language_keywords.iter().any(|&keyword| subtitle_stem.to_ascii_lowercase().contains(keyword)) {
+                        log_debug!("subtitle_stem 1: {}", subtitle_stem);
+                        2 // 包含剧集编号和语言标记得分次之
+                    } else {
+                        1
+                    }
+                } else { 
+                    if language_keywords.iter().any(|&keyword| subtitle_stem.to_ascii_lowercase().contains(keyword)) {
+                        log_debug!("subtitle_stem 2: {}", subtitle_stem);
+                        2 // 包含语言标记得分次之
+                    } else {
+                        log_debug!("subtitle_stem 3: {}", subtitle_stem.to_ascii_lowercase());
+                        1
+                    }
+                }
+            }
+        } else {
+            0 // 无法获取文件名时最低优先级
+        }
+    })
+}
 
 /// 清理视频文件名以获得更好的搜索结果
 pub(crate) fn clean_video_name(filename: &str) -> String {
@@ -210,6 +316,7 @@ pub(crate) async fn get_genre_names(genre_ids: &[i64]) -> Result<String, String>
     }
 }
 
+#[derive(Debug)]
 pub struct SeriesInfo {
     pub series_title: String,
     pub season: i32,
@@ -276,5 +383,43 @@ pub fn parse_series_info(filename: &str) -> SeriesInfo {
         season: 1,
         episode: 1,
         is_series: false,
+    }
+}
+
+
+
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn match_sutitles() {
+        let temp_file_path = "C:\\Users\\yzok0\\Videos\\Transformers.One.2024.HDR.2160p.WEB.h265-ETHEL[TGx]\\Transformers.One.2024.HDR.2160p.WEB.h265-ETHEL.mkv";
+        let subtitle_stem = "Transformers.One.xx.2024.HDR.2160p.WEB.h265-ETHEL.简体.srt";
+        let episode_pattern = regex::Regex::new(r"S\d{2}E\d{2}").ok(); // 匹配剧集编号 SxxExx
+        let language_keywords = ["zh", "chs", "cn", "cht", "chinese", "chr", "简体", "简中", "繁中"];
+        let _language_pattern = regex::Regex::new(&format!(r"({})", language_keywords.join("|"))).ok(); // 匹配语言关键字    
+        
+        let series_info = parse_series_info(temp_file_path);
+        if series_info.is_series {
+            println!("Series: {:?}", series_info.is_series);
+            let series_pattern = format!(
+                "[\\s.]*S{:02}E{:02}*{}",
+                series_info.season,
+                series_info.episode,
+                language_keywords.join("|")
+            );
+            println!("Series pattern: {}", series_pattern);
+            let re = Regex::new(&series_pattern).unwrap();
+            if re.is_match(subtitle_stem) {
+                println!("Matched: {}", subtitle_stem);
+            }
+        }
+
+        if let Some(ep_pattern) = &_language_pattern {
+            if ep_pattern.is_match(&subtitle_stem) {
+                println!("Episode: {:?}", ep_pattern.captures(&subtitle_stem));
+            }
+        }
     }
 }

@@ -4,10 +4,11 @@ mod db;
 mod api;
 mod video;
 mod logger;
+mod metadata;
 
 use walkdir::WalkDir;
 use tauri::{Manager, State};
-use db::{delete_video, get_all_videos, init_db, insert_video, video_exists, DbState, VideoInfo};
+use db::{DbState, VideoInfo};
 use std::{
     env, 
     fs,
@@ -15,7 +16,6 @@ use std::{
     io::{self, BufRead},
     sync::{Mutex, Arc}, 
     process::Command};
-use video::{fetch_video_info_from_tmdb, parse_series_info};
 use serde::{Deserialize, Serialize};
 
 // 导出日志宏
@@ -27,6 +27,24 @@ const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov"];
 struct Settings {
     player_path: Option<String>,
     player_type: Option<String>,
+    auto_subtitle: Option<bool>,
+    /**
+     * eng - 英语 (English)
+     * fre - 法语 (French)
+     * spa - 西班牙语 (Spanish)
+     * ger - 德语 (German)
+     * ita - 意大利语 (Italian)
+     * jpn - 日语 (Japanese)
+     * kor - 韩语 (Korean)
+     * chi - 中文 (Chinese)
+     * rus - 俄语 (Russian)
+     * por - 葡萄牙语 (Portuguese)
+     */
+    subtitle_language: Option<String>, // 添加字幕语言字段
+}
+
+struct AppState {
+    settings: Arc<Mutex<Settings>>,
 }
 
 #[tauri::command]
@@ -55,7 +73,7 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
         let id_clone = id.clone();
         let exists = match tokio::task::spawn_blocking(move || {
             let conn = db_clone.lock().unwrap();
-            video_exists(&conn, &id_clone)
+            db::video_exists(&conn, &id_clone)
         }).await {
             Ok(result) => result,
             Err(e) => {
@@ -72,15 +90,19 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
             let file_name_clone = file_name.clone();
             
             // 解析剧集信息
-            let series_info = parse_series_info(&file_name);
+            let series_info = video::parse_series_info(&file_name);
             let search_name = if series_info.is_series {
                 &series_info.series_title
             } else {
                 &file_name
             };
+
             
+            // 获取视频时长
+            let formatted_duration = video::get_duration(&path.to_string_lossy());
+
             // 获取 TMDb 信息
-            match fetch_video_info_from_tmdb(search_name).await {
+            match video::fetch_video_info_from_tmdb(search_name).await {
                 Ok(video_info_str) => {
                     log_debug!("video_info_str: {}", video_info_str);
                     match serde_json::from_str::<serde_json::Value>(&video_info_str) {
@@ -97,22 +119,22 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
                                     title: video_info.get("original_title").and_then(|v| v.as_str()).unwrap_or(&file_name).to_string(),
                                     title_cn: video_info.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                                     thumbnail: video_info.get("poster_path").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                    duration: "".to_string(),
+                                    duration: formatted_duration.unwrap_or_else(|_| "Unknown".to_string()),
                                     path: path.to_string_lossy().to_string(),
-                                    category: video_info.get("genres").and_then(|v| v.as_str()).unwrap_or("未分类").to_string(),
+                                    category: if series_info.is_series { "剧集" } else { "电影" }.to_string(),
                                     description: video_info.get("overview").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                                     create_time: chrono::Utc::now().timestamp(),
                                     last_play_time: 0,
                                     play_count: 0,
                                     favorite: false,
-                                    tags: String::new(),
+                                    tags: video_info.get("genres").and_then(|v| v.as_str()).unwrap_or("未分类").to_string(),
                                     is_series: series_info.is_series,
                                     series_title: series_info.series_title,
                                     season: series_info.season,
                                     episode: series_info.episode,
                                 };
 
-                                insert_video(&conn, &video).map_err(|e| e.to_string())?;
+                                db::insert_video(&conn, &video).map_err(|e| e.to_string())?;
                                 new_videos.lock().unwrap().push(video);
                                 Ok::<_, String>(())
                             }).await {
@@ -137,7 +159,7 @@ async fn scan_folder(path: String, db: State<'_, DbState>) -> Result<Vec<VideoIn
     // 最后获取所有视频
     tokio::task::spawn_blocking(move || {
         let conn = db.lock().unwrap();
-        get_all_videos(&conn).map_err(|e| e.to_string())
+        db::get_all_videos(&conn).map_err(|e| e.to_string())
     }).await.unwrap()
 }
 
@@ -156,21 +178,45 @@ async fn get_cached_videos(db: State<'_, DbState>) -> Result<Vec<VideoInfo>, Str
         Ok(lock) => lock,
         Err(_) => return Err("Failed to acquire database lock".to_string()),
     };
-    get_all_videos(&conn).map_err(|e| e.to_string())
+    db::get_all_videos(&conn).map_err(|e| e.to_string())
 }
 
 
 
 #[tauri::command]
-async fn play_video(path: String, app_handle: tauri::AppHandle) -> Result<(), String> {
-    let settings = load_settings(app_handle.clone()).await?;
-    
-    match settings.player_path {
+async fn play_video(mut video: VideoInfo, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let app_state = app_handle.state::<AppState>();
+    let settings = app_state.settings.lock().unwrap();
+    let path = video.path.clone();
+    let subtitle_path = video::find_subtitles(&video).unwrap_or_default();
+
+    video.play_count += 1;
+    video.last_play_time = chrono::Utc::now().timestamp();
+    update_video(app_handle.state::<DbState>(), video).map_err(|e| e.to_string())?;
+
+    // 检查是否自动加载字幕
+    let auto_subtitle = settings.auto_subtitle.clone().unwrap_or(false);
+    let subtitle_language = settings.subtitle_language.clone().unwrap_or_else(|| "eng".to_string());
+
+    match &settings.player_path {
         Some(player_path) if !player_path.is_empty() => {
-            Command::new(player_path)
-                .arg(&path)
-                .spawn()
-                .map_err(|e| e.to_string())?;
+            match settings.player_type.as_deref() {
+                Some("vlc") => {
+                    let mut command = Command::new(player_path);
+                    command.arg(&path); // 指定视频文件
+                    
+                    if auto_subtitle {
+                        command.arg("--sub-file").arg(&subtitle_path); // 指定字幕文件
+                    }
+                    command.arg("--sub-language").arg(&subtitle_language); // 指定字幕语言
+                    command.arg("--fullscreen"); // 全屏播放（可选）
+                    command.spawn().map_err(|e| e.to_string())?;
+                }
+                _ => {
+                    eprintln!("Unsupported player type: {:?}", settings.player_type);
+                }
+                
+            }
         }
         _ => {
             // 如果没有设置播放器路径，使用系统默认播放器
@@ -216,6 +262,11 @@ async fn save_settings(settings: Settings, app_handle: tauri::AppHandle) -> Resu
     
     fs::write(settings_path, settings_str)
         .map_err(|e| e.to_string())?;
+
+    // 更新全局状态中的 settings
+    let app_state = app_handle.state::<AppState>();
+    let mut global_settings = app_state.settings.lock().unwrap();
+    *global_settings = settings;
     
     Ok(())
 }
@@ -234,6 +285,8 @@ async fn load_settings(app_handle: tauri::AppHandle) -> Result<Settings, String>
         Ok(Settings {
             player_path: None,
             player_type: Some("system".to_string()),
+            auto_subtitle: Some(true),
+            subtitle_language: Some("eng".to_string()),
         })
     }
 }
@@ -244,25 +297,24 @@ fn remove_video(db: State<'_, DbState>, id: String) -> Result<(), String> {
         Ok(lock) => lock,
         Err(_) => return Err("Failed to acquire database lock".to_string()),
     };
-    delete_video(&conn, &id).map_err(|e| e.to_string())
+    db::delete_video(&conn, &id).map_err(|e| e.to_string())
 }
 
-// fn get_video_duration(path: &str) -> Result<String, String> {
-    // let path = Path::new(path);
-    // let decoder = Decoder::new(path).map_err(|e| e.to_string())?;
-    
-    // let duration = decoder.duration().map_err(|e| e.to_string())?;
-    // let seconds = duration.as_secs_f64();
-    // let hours = (seconds / 3600.0) as u64;
-    // let minutes = ((seconds % 3600.0) / 60.0) as u64;
-    // let secs = (seconds % 60.0) as u64;
-    
-    // if hours > 0 {
-    //     Ok(format!("{:02}:{:02}:{:02}", hours, minutes, secs))
-    // } else {
-    //     Ok(format!("{:02}:{:02}", minutes, secs))
-    // }
-// }
+#[tauri::command]
+fn update_video(db: State<'_, DbState>, video: VideoInfo) -> Result<(), String> {
+    let conn = match db.0.try_lock() {
+        Ok(lock) => lock,
+        Err(_) => return Err("Failed to acquire database lock".to_string()),
+    };
+    db::update_video(&conn, &video).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_video_duration(path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        video::get_duration(&path).map_err(|e| e.to_string())
+    }).await.map_err(|e| e.to_string())?
+}
 
 /// 读取 .env 文件并设置环境变量
 fn load_env_from_file(file_path: &str) -> io::Result<()> {
@@ -292,14 +344,26 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.app_handle();  // 获取应用句柄
-            let conn = init_db(&handle).expect("Database initialization failed");   // 初始化数据库
-            app.manage(DbState(Arc::new(Mutex::new(conn))));    // 将数据库连接状态传递给应用
+
+            let conn = db::init_db(&handle).expect("Database initialization failed");   // 初始化数据库
+            let db_state = DbState(Arc::new(Mutex::new(conn)));
+            app.manage(db_state);
+
+            // 加载设置
+            let settings = tauri::async_runtime::block_on(load_settings(handle.clone())).expect("Failed to load settings");
+            let app_state = AppState {
+                settings: Arc::new(Mutex::new(settings)),
+            };
+            app.manage(app_state);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             select_and_scan_folder,
             scan_folder,
             get_cached_videos,
+            get_video_duration,
+            update_video,
             play_video,
             remove_video,
             save_settings,

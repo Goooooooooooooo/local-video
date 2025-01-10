@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import SimpleAlert from './simplealert';
 
-// 手动定义接口
+/**
+ * 视频信息接口
+ */
 interface VideoInfo {
     id: string;
     title: string;
@@ -21,13 +24,27 @@ interface VideoInfo {
     episode: number;
 }
 
+/**
+ * 设置信息接口
+ */
 interface Settings {
     player_path: string;
     player_type: string;
+    auto_subtitle: boolean;
+    subtitle_language: string;
 }
 
-// 初始化调整大小功能
-function initializeResizer() {
+/** 全局变量：视频列表 */
+let _videos: VideoInfo[] = [];
+/** 全局变量：当前激活的筛选关键字 */
+let _active: string = 'all';
+let _simpleAlert: SimpleAlert;
+
+/**
+ * 初始化调整大小功能
+ * @returns 
+ */
+function initializeResizer(): void {
   const resizer = document.getElementById('resizer');
   const sidebar = document.querySelector('.sidebar') as HTMLElement;
   console.log(sidebar);
@@ -58,7 +75,11 @@ function initializeResizer() {
   }
 }
 
-// 创建视频卡片
+/**
+ * 创建视频卡片
+ * @param video 视频信息
+ * @returns 
+ */
 function createVideoCard(video: VideoInfo): HTMLElement {
   const card = document.createElement('div');
   card.className = 'video-card';
@@ -66,7 +87,8 @@ function createVideoCard(video: VideoInfo): HTMLElement {
   const title = video.is_series 
         ? `${video.series_title} S${video.season.toString().padStart(2, '0')}E${video.episode.toString().padStart(2, '0')}`
         : video.title_cn || video.title;
-
+  
+  card.id = video.id;
   card.innerHTML = `
     <div class="video-thumbnail">
       <img src="${video.thumbnail}" alt="${title}">
@@ -76,7 +98,7 @@ function createVideoCard(video: VideoInfo): HTMLElement {
       <h3 class="video-title">${title}</h3>
       <div class="video-metadata">
         <span class="video-duration">${video.duration}</span>
-        <span class="video-category">${video.category}</span>
+        <span class="video-category">${video.tags}</span>
       </div>
     </div>
     <div class="close-button" title="Close">×</div>
@@ -87,6 +109,7 @@ function createVideoCard(video: VideoInfo): HTMLElement {
     e.stopPropagation();
     await invoke('remove_video', { id: video.id });
     card.remove();
+    _videos = _videos.filter(v => v.id !== video.id);
   });
 
   // 播放按钮点击事件
@@ -94,10 +117,10 @@ function createVideoCard(video: VideoInfo): HTMLElement {
   cardPlayButton?.addEventListener('click', async (e) => {
     e.stopPropagation(); // 阻止事件冒泡
     try {
-      await invoke('play_video', { path: video.path });
+      await invoke('play_video', { video: video });
     } catch (error) {
       console.error('Error playing video:', error);
-      alert('播放视频时出错：' + error);
+      _simpleAlert.showError('播放视频时出错：' + error);
     }
   });
 
@@ -109,7 +132,11 @@ function createVideoCard(video: VideoInfo): HTMLElement {
   return card;
 }
 
-function showVideoDetails(video: VideoInfo) {
+/**
+ * 显示视频详情
+ * @param video 视频信息
+ */
+function showVideoDetails(video: VideoInfo): void {
   const modal = document.createElement('div');
   modal.className = 'modal active';
   
@@ -133,10 +160,10 @@ function showVideoDetails(video: VideoInfo) {
   const playButton = modal.querySelector('.play-button');
   playButton?.addEventListener('click', async () => {
     try {
-      await invoke('play_video', { path: video.path });
+      await invoke('play_video', { video: video });
     } catch (error) {
       console.error('Error playing video:', error);
-      alert('播放视频时出错：' + error);
+      _simpleAlert.showError('播放视频时出错：' + error);
     }
   });
 
@@ -154,18 +181,31 @@ function showVideoDetails(video: VideoInfo) {
   });
 }
 
-async function selectAndScanFolder() {
+/**
+ * 扫描文件夹并显示视频
+ * @returns 
+ */
+async function selectAndScanFolder(): Promise<void> {
   try {
-    const videos = await invoke<VideoInfo[]>('select_and_scan_folder');
-    console.log(videos);
-    displayVideos(videos);
+    let tempVideos: VideoInfo[] = await invoke<VideoInfo[]>('select_and_scan_folder');
+    _simpleAlert.showSuccess(`已添加：${tempVideos.length}!`, { duration: 5000 });
+    if (tempVideos.length === 0) {
+      return;
+    }
+    _videos = tempVideos;
+    displayVideos(tempVideos);
   } catch (error) {
     console.error('Error scanning folder:', error);
-    alert('扫描文件夹时出错：' + error);
+    _simpleAlert.showError('扫描文件夹时出错：' + error);
   }
 }
 
-function displayVideos(videos: VideoInfo[]) {
+/**
+ * 显示视频列表
+ * @param videos 视频列表
+ * @returns 
+ */
+function displayVideos(videos: VideoInfo[]): void {
   const videoGrid = document.getElementById('video-grid');
   if (!videoGrid) return;
 
@@ -175,35 +215,56 @@ function displayVideos(videos: VideoInfo[]) {
     return;
   }
 
-  videos.forEach(video => {
+  getVideos(_active).forEach(video => {
     videoGrid.appendChild(createVideoCard(video));
   });
 }
 
-// 添加设置按钮到菜单栏
-function addSettingsButton() {
-  const nav = document.querySelector('.sidebar nav ul');
-  if (nav) {
-    const settingsButton = document.createElement('li');
-    settingsButton.innerHTML = '<a href="#" class="settings-button">设置</a>';
-    settingsButton.querySelector('a')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      showSettings();
-    });
-    nav.appendChild(settingsButton);
+/**
+ * 过滤视频列表
+ * @param keyword 过滤视频关键字
+ * @returns 
+ */
+function getVideos(keyword: string): VideoInfo[] {
+  let tempVideos:VideoInfo[] = _videos;
+  if (keyword === 'tv') {
+    _active = 'tv';
+    return tempVideos.filter(video => video.is_series);
   }
+  if (keyword === 'mv') {
+    _active = 'mv';
+    return tempVideos.filter(video => !video.is_series);
+  }
+  if (keyword === 'played') {
+    _active = 'played';
+    return tempVideos.filter(video => video.play_count > 0).sort((a, b) => b.last_play_time - a.last_play_time);
+  }
+  _active = 'all';
+  return _videos;
 }
 
-// 显示设置页面
-function showSettings() {
+/**
+ * 切换按钮激活状态
+ * @param e DOM元素
+ */
+function toggleButtonActive(e: Element): void {
+  document.querySelector("aside.sidebar > nav > ul > li > a.active")?.classList.remove('active');
+  e?.classList.add('active');
+}
+
+/**
+ * 显示设置页面
+ */
+function showSettings(): void {
   const modal = document.createElement('div');
   modal.className = 'modal active';
   
   modal.innerHTML = `
     <div class="modal-content settings-modal">
       <span class="modal-close">&times;</span>
-      <h2>播放器设置</h2>
+      <h2>设置</h2>
       <div class="settings-form">
+        <h4>默认播放器</h4>
         <div class="form-group">
           <label for="player-path">播放器路径：</label>
           <input type="text" id="player-path" placeholder="例如：C:/Program Files/VLC/vlc.exe">
@@ -216,6 +277,33 @@ function showSettings() {
             <option value="iina">IINA</option>
             <option value="system">系统默认</option>
           </select>
+        </div>
+        <div class="form-group">
+          <h4>字幕</h4>
+          <div class="toggle-settings">
+            <label for="player-path">自动加载字幕<br><span>视频文件同目录的字幕文件夹</span></label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="auto-subtitle">
+              <div class="toggle-switch-background">
+                <div class="toggle-switch-handle"></div>
+              </div>
+            </label>
+          </div>
+          <div class="toggle-settings">
+            <label for="subtitle-language">默认语言：</label>
+            <select class="w-auto" id="subtitle-language">
+              <option value="chi">chi - 中文 (Chinese)</option>
+              <option value="rus">rus - 俄语 (Russian)</option>
+              <option value="eng">eng - 英语 (English)</option>
+              <option value="fre">fre - 法语 (French)</option>
+              <option value="spa">spa - 西班牙语 (Spanish)</option>
+              <option value="ger">ger - 德语 (German)</option>
+              <option value="ita">ita - 意大利语 (Italian)</option>
+              <option value="jpn">jpn - 日语 (Japanese)</option>
+              <option value="por">por - 葡萄牙语 (Portuguese)</option>
+              <option value="kor">kor - 韩语 (Korean)</option>
+            </select>
+          </div>
         </div>
         <button class="save-settings">保存设置</button>
       </div>
@@ -245,53 +333,98 @@ function showSettings() {
   });
 }
 
-// 保存设置
-async function saveSettings() {
+/**
+ * 保存设置
+ */
+async function saveSettings(): Promise<void> {
   const playerPath = (document.getElementById('player-path') as HTMLInputElement)?.value;
   const playerType = (document.getElementById('player-type') as HTMLSelectElement)?.value;
+
+  const autoSubtitle = (document.getElementById('auto-subtitle') as HTMLInputElement)?.checked;
+  const subtitleLanguage = (document.getElementById('subtitle-language') as HTMLSelectElement)?.value;
 
   await invoke('save_settings', { 
     settings: { 
       player_path: playerPath, 
-      player_type: playerType 
+      player_type: playerType,
+      auto_subtitle: autoSubtitle,
+      subtitle_language: subtitleLanguage
     } 
   });
-  alert('设置已保存');
+
+  _simpleAlert.showSuccess('设置已保存!', { duration: 5000 });
+
   let settingModal = document.querySelector('div.modal.active');
   if (settingModal)
     document.body.removeChild(settingModal);
 }
 
-// 加载设置
-async function loadSettings() {
+/**
+ * 加载设置
+ */
+async function loadSettings(): Promise<void> {
   const settings = await invoke('load_settings') as Settings;
   if (settings) {
     (document.getElementById('player-path') as HTMLInputElement).value = settings.player_path || '';
     (document.getElementById('player-type') as HTMLSelectElement).value = settings.player_type || 'system';
+    (document.getElementById('auto-subtitle') as HTMLInputElement).checked = settings.auto_subtitle || false;
+    (document.getElementById('subtitle-language') as HTMLSelectElement).value = settings.subtitle_language || 'chi';
   }
 }
 
-// 初始化应用
-async function initializeApp() {
+/**
+ * 初始化应用
+ */
+async function initializeApp(): Promise<void> {
   initializeResizer();
+  _simpleAlert = new SimpleAlert();
+  
+  // 扫描文件夹
+  document.querySelector('.scan-button')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    selectAndScanFolder();
+  });
 
-  // 添加扫描按钮到侧边栏
-  const nav = document.querySelector('.sidebar nav ul');
-  if (nav) {
-    const scanButton = document.createElement('li');
-    scanButton.innerHTML = '<a href="#" class="scan-button">扫描文件夹</a>';
-    scanButton.querySelector('a')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      selectAndScanFolder();
-    });
-    nav.appendChild(scanButton);
-  }
+  // 筛选视频-电影
+  document.querySelector('.mv-button')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleButtonActive(e.target as Element);
+    displayVideos(getVideos('mv'));
+  });
+
+  // 筛选视频-电视剧
+  document.querySelector('.tv-button')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleButtonActive(e.target as Element);
+    displayVideos(getVideos('tv'));
+  });
+
+  // 筛选视频-全部
+  document.querySelector('.all-button')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleButtonActive(e.target as Element);
+    displayVideos(getVideos('all'));
+  });
+
+  // 筛选视频-最近播放
+  document.querySelector('.recently-played-button')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleButtonActive(e.target as Element);
+    displayVideos(getVideos('played'));
+  });
+
+  // 设置按钮
+  document.querySelector('.settings-button')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleButtonActive(e.target as Element);
+    showSettings();
+  });
 
   try {
     // 尝试加载缓存的视频
-    const videos = await invoke<VideoInfo[]>('get_cached_videos');
-    if (videos.length > 0) {
-      displayVideos(videos);
+    _videos = await invoke<VideoInfo[]>('get_cached_videos');
+    if (_videos.length > 0) {
+      displayVideos(_videos);
     } else {
       const videoGrid = document.getElementById('video-grid');
       if (videoGrid) {
@@ -306,8 +439,6 @@ async function initializeApp() {
     }
   }
 
-  // 初始化时添加设置按钮
-  addSettingsButton();
 }
 
 window.addEventListener('DOMContentLoaded', initializeApp);
