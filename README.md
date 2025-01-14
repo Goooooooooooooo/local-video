@@ -1,3 +1,5 @@
+# 不定时更新中......
+
 # Tauri + Vanilla TS
 
 This template should help get you started developing with Tauri in vanilla HTML, CSS and Typescript.
@@ -18,5 +20,3 @@ This template should help get you started developing with Tauri in vanilla HTML,
 
 自动从TMDB匹配视频信息
 ![image](https://github.com/user-attachments/assets/03f6fcb0-3d24-4836-b150-a8feeb26b1a2)
-
-# 不定时更新中......
