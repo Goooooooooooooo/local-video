@@ -97,7 +97,7 @@ async fn scan_folder(path: String, db: State<'_, DbState>, settings: Settings) -
             } else {
                 &file_name
             };
-            
+
             // 获取视频时长
             let formatted_duration = video::get_duration(&path.to_string_lossy());
             
@@ -105,7 +105,17 @@ async fn scan_folder(path: String, db: State<'_, DbState>, settings: Settings) -
             if settings.auto_tmdb.unwrap_or(false) {
                 // 获取 TMDb 信息
                 if let Some(ref api_key) = settings.tmdb_api_key {
-                    video_info_str = video::fetch_video_info_from_tmdb(&search_name, api_key).await?;
+                    if series_info.is_series { // 获取电视剧
+                        video_info_str = match video::fetch_tv_info_from_tmdb(&series_info, api_key).await {
+                            Ok(info) => info,
+                            Err(_) => String::new(), // 返回空字符串
+                        }
+                    } else {
+                        video_info_str = match video::fetch_video_info_from_tmdb(&search_name, api_key).await {
+                            Ok(info) => info,
+                            Err(_) => String::new(), // 返回空字符串
+                        }
+                    }
                 }
             }
 
@@ -143,9 +153,10 @@ async fn scan_folder(path: String, db: State<'_, DbState>, settings: Settings) -
                 favorite: false,
                 tags: video_info.get("genres").and_then(|v| v.as_str()).unwrap_or("未分类").to_string(),
                 is_series: series_info.is_series,
-                series_title: series_info.series_title,
+                series_title: video_info.get("series_title").and_then(|v| v.as_str()).unwrap_or(&series_info.series_title).to_string(),
                 season: series_info.season,
                 episode: series_info.episode,
+                episode_overview: video_info.get("episode_overview").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             };
 
             let binding = db.clone();

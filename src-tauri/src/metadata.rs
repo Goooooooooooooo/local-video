@@ -130,6 +130,8 @@ fn get_mkv_metadata(file_path: &str) -> Result<MkvMetadata, String> {
                         duration = Some(bytes_to_f64(&buffer[..info_element_size as usize]));
                     }
                     _ => {
+                        // 打印未处理的元素信息
+                        println!("Unknown element ID: {:#X}, size: {}", info_element_id, info_element_size);
                         reader.seek(SeekFrom::Current(info_element_size as i64)).map_err(|e| e.to_string())?;
                     }
                 }

@@ -22,6 +22,7 @@ interface VideoInfo {
     series_title: string;
     season: number;
     episode: number;
+    episode_overview: string;
 }
 
 /**
@@ -150,7 +151,7 @@ function showVideoDetails(video: VideoInfo): void {
         <h2>${video.title_cn}</h2>
         <p><strong>时长：</strong>${video.duration}</p>
         <p><strong>分类：</strong>${video.category}</p>
-        <p><strong>描述：</strong>${video.description}</p>
+        <p><strong>描述：</strong>${video.is_series ? video.episode_overview : video.description}</p>
         <button class="play-button">播放视频</button>
       </div>
     </div>

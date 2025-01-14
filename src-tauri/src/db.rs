@@ -45,6 +45,8 @@ pub struct VideoInfo {
     pub season: i32,
     /// 集数
     pub episode: i32,
+    /// 剧集简介
+    pub episode_overview: String,
 }
 
 /// 数据库连接状态
@@ -78,22 +80,23 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS videos (
             id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            title_cn TEXT NOT NULL,
-            thumbnail TEXT NOT NULL,
-            duration TEXT NOT NULL,
-            path TEXT NOT NULL,
-            category TEXT NOT NULL,
-            description TEXT NOT NULL,
+            title TEXT,
+            title_cn TEXT,
+            thumbnail TEXT,
+            duration TEXT,
+            path TEXT,
+            category TEXT,
+            description TEXT,
             create_time INTEGER NOT NULL,
             last_play_time INTEGER NOT NULL,
             play_count INTEGER NOT NULL,
-            favorite BOOLEAN NOT NULL,
-            tags TEXT NOT NULL,
+            favorite BOOLEAN NOT NULL DEFAULT 0,
+            tags TEXT,
             is_series BOOLEAN NOT NULL DEFAULT 0,
             series_title TEXT NOT NULL DEFAULT '',
             season INTEGER NOT NULL DEFAULT 1,
-            episode INTEGER NOT NULL DEFAULT 1
+            episode INTEGER NOT NULL DEFAULT 1,
+            episode_overview TEXT
         )",
         [],
     )?;
@@ -130,8 +133,8 @@ pub fn insert_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
         "INSERT INTO videos (
             id, title, title_cn, thumbnail, duration, path, category, description,
             create_time, last_play_time, play_count, favorite, tags,
-            is_series, series_title, season, episode
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            is_series, series_title, season, episode, episode_overview
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             video.id,
             video.title,
@@ -150,6 +153,7 @@ pub fn insert_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
             video.series_title,
             video.season,
             video.episode,
+            video.episode_overview
         ],
     )?;
     log_debug!("Inserted video: {:?}", video);
@@ -180,10 +184,7 @@ pub fn video_exists(conn: &Connection, id: &str) -> bool {
 /// * `Result<Vec<VideoInfo>, rusqlite::Error>` - 成功返回视频列表，失败返回错误
 pub fn get_all_videos(conn: &Connection) -> Result<Vec<VideoInfo>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, title_cn, thumbnail, duration, path, category, description,
-         create_time, last_play_time, play_count, favorite, tags,
-         is_series, series_title, season, episode
-         FROM videos ORDER BY title_cn ASC"
+        "SELECT * FROM videos ORDER BY title_cn ASC"
     )?;
 
     let videos = stmt.query_map([], |row| {
@@ -205,6 +206,7 @@ pub fn get_all_videos(conn: &Connection) -> Result<Vec<VideoInfo>, rusqlite::Err
             series_title: row.get(14)?,
             season: row.get(15)?,
             episode: row.get(16)?,
+            episode_overview: row.get(17)?,
         })
     })?
     .collect::<Result<Vec<_>, _>>()?;
@@ -238,7 +240,8 @@ pub fn update_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
             is_series = COALESCE(:is_series, is_series),
             series_title = COALESCE(:series_title, series_title),
             season = COALESCE(:season, season),
-            episode = COALESCE(:episode, episode)
+            episode = COALESCE(:episode, episode),
+            episode_overview = COALESCE(:episode_overview, episode_overview)
         WHERE id = :id;
     ";
 
@@ -261,6 +264,7 @@ pub fn update_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
             ":series_title": video.series_title,
             ":season": video.season,
             ":episode": video.episode,
+            ":episode_overview": video.episode_overview
         },
     )?;
     Ok(())
