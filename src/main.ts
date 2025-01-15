@@ -6,8 +6,8 @@ import SimpleAlert from './simplealert';
  */
 interface VideoInfo {
     id: string;
+    original_title: string;
     title: string;
-    title_cn: string;
     thumbnail: string;
     duration: string;
     path: string;
@@ -19,9 +19,9 @@ interface VideoInfo {
     favorite: boolean;
     tags: string;
     is_series: boolean;
-    series_title: string;
     season: number;
     episode: number;
+    episode_title: string;
     episode_overview: string;
 }
 
@@ -88,8 +88,8 @@ function createVideoCard(video: VideoInfo): HTMLElement {
   card.className = 'video-card';
   
   const title = video.is_series 
-        ? `${video.series_title} S${video.season.toString().padStart(2, '0')}E${video.episode.toString().padStart(2, '0')}`
-        : video.title_cn || video.title;
+        ? `${video.title} S${video.season.toString().padStart(2, '0')}E${video.episode.toString().padStart(2, '0')}`
+        : video.title || video.original_title;
   
   card.id = video.id;
   card.innerHTML = `
@@ -147,10 +147,11 @@ function showVideoDetails(video: VideoInfo): void {
     <div class="modal-content">
       <span class="modal-close">&times;</span>
       <div class="video-details">
-        <img src="${video.thumbnail}" alt="${video.title}" style="width: 200px; float: left; margin-right: 20px;">
-        <h2>${video.title_cn}</h2>
+        <img src="${video.thumbnail}" alt="${video.title + " " + video.episode_title}" style="width: 200px; float: left; margin-right: 20px;">
+        <h2>${video.is_series ? video.episode_title : video.title}</h2>
         <p><strong>时长：</strong>${video.duration}</p>
         <p><strong>分类：</strong>${video.category}</p>
+        <p><strong>标签：</strong>${video.tags}</p>
         <p><strong>描述：</strong>${video.is_series ? video.episode_overview : video.description}</p>
         <button class="play-button">播放视频</button>
       </div>

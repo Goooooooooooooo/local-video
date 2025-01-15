@@ -13,10 +13,10 @@ use serde::{Serialize, Deserialize};
 pub struct VideoInfo {
     /// 视频唯一标识符，使用文件路径的MD5值
     pub id: String,
-    /// 视频标题，默认使用文件名
+    /// 视频标题 or 系列名称，默认使用文件名
+    pub original_title: String,
+    /// 视频标题 or 系列名称（中文），可选
     pub title: String,
-    /// 视频标题（中文），可选
-    pub title_cn: String,
     /// 缩略图URL
     pub thumbnail: String,
     /// 视频时长
@@ -39,12 +39,12 @@ pub struct VideoInfo {
     pub tags: String,
     /// 是否为剧集
     pub is_series: bool,
-    /// 系列名称（用于电视剧）
-    pub series_title: String,
     /// 季数
     pub season: i32,
     /// 集数
     pub episode: i32,
+    /// 每集标题
+    pub episode_title: String,
     /// 剧集简介
     pub episode_overview: String,
 }
@@ -80,8 +80,8 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS videos (
             id TEXT PRIMARY KEY,
+            original_title TEXT,
             title TEXT,
-            title_cn TEXT,
             thumbnail TEXT,
             duration TEXT,
             path TEXT,
@@ -93,9 +93,9 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection> {
             favorite BOOLEAN NOT NULL DEFAULT 0,
             tags TEXT,
             is_series BOOLEAN NOT NULL DEFAULT 0,
-            series_title TEXT NOT NULL DEFAULT '',
             season INTEGER NOT NULL DEFAULT 1,
             episode INTEGER NOT NULL DEFAULT 1,
+            episode_title TEXT,
             episode_overview TEXT
         )",
         [],
@@ -131,14 +131,14 @@ fn fetch_single_row<T>(
 pub fn insert_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite::Error> {
     conn.execute(
         "INSERT INTO videos (
-            id, title, title_cn, thumbnail, duration, path, category, description,
+            id, original_title, title, thumbnail, duration, path, category, description,
             create_time, last_play_time, play_count, favorite, tags,
-            is_series, series_title, season, episode, episode_overview
+            is_series, season, episode, episode_title, episode_overview
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             video.id,
+            video.original_title,
             video.title,
-            video.title_cn,
             video.thumbnail,
             video.duration,
             video.path,
@@ -150,9 +150,9 @@ pub fn insert_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
             video.favorite,
             video.tags,
             video.is_series,
-            video.series_title,
             video.season,
             video.episode,
+            video.episode_title,
             video.episode_overview
         ],
     )?;
@@ -184,14 +184,14 @@ pub fn video_exists(conn: &Connection, id: &str) -> bool {
 /// * `Result<Vec<VideoInfo>, rusqlite::Error>` - 成功返回视频列表，失败返回错误
 pub fn get_all_videos(conn: &Connection) -> Result<Vec<VideoInfo>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT * FROM videos ORDER BY title_cn ASC"
+        "SELECT * FROM videos ORDER BY title ASC"
     )?;
 
     let videos = stmt.query_map([], |row| {
         Ok(VideoInfo {
             id: row.get(0)?,
-            title: row.get(1)?,
-            title_cn: row.get(2)?,
+            original_title: row.get(1)?,
+            title: row.get(2)?,
             thumbnail: row.get(3)?,
             duration: row.get(4)?,
             path: row.get(5)?,
@@ -203,9 +203,9 @@ pub fn get_all_videos(conn: &Connection) -> Result<Vec<VideoInfo>, rusqlite::Err
             favorite: row.get(11)?,
             tags: row.get(12)?,
             is_series: row.get(13)?,
-            series_title: row.get(14)?,
-            season: row.get(15)?,
-            episode: row.get(16)?,
+            season: row.get(14)?,
+            episode: row.get(15)?,
+            episode_title: row.get(16)?,
             episode_overview: row.get(17)?,
         })
     })?
@@ -226,8 +226,8 @@ pub fn update_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
     let sql = "
         UPDATE videos
         SET 
+            original_title = COALESCE(:original_title, original_title),
             title = COALESCE(:title, title),
-            title_cn = COALESCE(:title_cn, title_cn),
             thumbnail = COALESCE(:thumbnail, thumbnail),
             duration = COALESCE(:duration, duration),
             path = COALESCE(:path, path),
@@ -238,9 +238,9 @@ pub fn update_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
             favorite = COALESCE(:favorite, favorite),
             tags = COALESCE(:tags, tags),
             is_series = COALESCE(:is_series, is_series),
-            series_title = COALESCE(:series_title, series_title),
             season = COALESCE(:season, season),
             episode = COALESCE(:episode, episode),
+            episode_title = COALESCE(:episode_title, episode_title),
             episode_overview = COALESCE(:episode_overview, episode_overview)
         WHERE id = :id;
     ";
@@ -249,8 +249,8 @@ pub fn update_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
         sql,
         rusqlite::named_params! {
             ":id": video.id,
+            ":original_title": video.original_title,
             ":title": video.title,
-            ":title_cn": video.title_cn,
             ":thumbnail": video.thumbnail,
             ":duration": video.duration,
             ":path": video.path,
@@ -261,9 +261,9 @@ pub fn update_video(conn: &Connection, video: &VideoInfo) -> Result<(), rusqlite
             ":favorite": video.favorite,
             ":tags": video.tags,
             ":is_series": video.is_series,
-            ":series_title": video.series_title,
             ":season": video.season,
             ":episode": video.episode,
+            ":episode_title": video.episode_title,
             ":episode_overview": video.episode_overview
         },
     )?;

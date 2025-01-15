@@ -138,10 +138,10 @@ async fn scan_folder(path: String, db: State<'_, DbState>, settings: Settings) -
                     continue;
                 }
             };
-            let video = VideoInfo {
+            let video: VideoInfo = VideoInfo {
                 id: id,
-                title: video_info.get("original_title").and_then(|v| v.as_str()).unwrap_or(&file_name).to_string(),
-                title_cn: video_info.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                original_title: video_info.get("original_title").and_then(|v| v.as_str()).unwrap_or(&file_name).to_string(),
+                title: video_info.get("title").and_then(|v| v.as_str()).unwrap_or(&series_info.series_title).to_string(),
                 thumbnail: video_info.get("poster_path").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 duration: formatted_duration.unwrap_or_else(|_| "Unknown".to_string()),
                 path: path.to_string_lossy().to_string(),
@@ -153,9 +153,9 @@ async fn scan_folder(path: String, db: State<'_, DbState>, settings: Settings) -
                 favorite: false,
                 tags: video_info.get("genres").and_then(|v| v.as_str()).unwrap_or("未分类").to_string(),
                 is_series: series_info.is_series,
-                series_title: video_info.get("series_title").and_then(|v| v.as_str()).unwrap_or(&series_info.series_title).to_string(),
                 season: series_info.season,
                 episode: series_info.episode,
+                episode_title: video_info.get("episode_title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 episode_overview: video_info.get("episode_overview").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             };
 
@@ -363,13 +363,16 @@ fn load_env_from_file(file_path: &str) -> io::Result<()> {
 }
 
 fn main() {
+
+    let ctx = tauri::generate_context!();
+
     logger::init_logger().expect("Failed to initialize logger");
     logger::set_log_level(logger::LogLevel::DEBUG);
 
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.app_handle();  // 获取应用句柄
-
+            
             // 加载 .env 文件
             if let Err(e) = load_env_from_file("./video.env") {
                 log_error!("{}", format!("Failed to load video.env file: {}", e));
@@ -400,6 +403,6 @@ fn main() {
             save_settings,
             load_settings
         ])
-        .run(tauri::generate_context!())
+        .run(ctx)
         .expect("error while running tauri application");
 }

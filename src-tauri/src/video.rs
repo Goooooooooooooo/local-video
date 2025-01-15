@@ -1,5 +1,4 @@
 // Module: video
-use std::{fs};
 use std::path::{Path, PathBuf};
 use crate::db::VideoInfo;
 use crate::{api, metadata};
@@ -9,7 +8,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use serde_json::Value;
-use std::thread;
+use std::{fs, thread};
 use std::time::Duration;
 
 static TV_SHOW_CACHE: Lazy<Mutex<HashMap<String, Value>>> = Lazy::new(|| {
@@ -154,7 +153,7 @@ pub(crate) fn clean_video_name(filename: &str) -> String {
         .trim_end_matches('.');
     log_debug!("Processing name: {}", name);
     // 1. 首先尝试提取年份前的内容（通常是电影名称）
-    if let Some(year_match) = regex::Regex::new(r"^(.*?)\b(19|20)\d{2}\b")
+    if let Some(year_match) = regex::Regex::new(r"^(.*?)\b((19|20)\d{2})\b")
         .unwrap()
         .captures(name) {
         if let Some(title) = year_match.get(1) {
@@ -170,6 +169,11 @@ pub(crate) fn clean_video_name(filename: &str) -> String {
                 .trim()
                 .to_string();
             if !cleaned.is_empty() {
+                // 提取年份
+                if let Some(year) = year_match.get(2) {
+                    let year_str = year.as_str().to_string();
+                    println!("video year: {}", year_str);
+                }
                 return cleaned;
             }
         }
@@ -281,8 +285,8 @@ pub(crate) async fn fetch_video_info_from_tmdb(video_name: &String, api_key: &St
 
     // 构建我们需要的信息
     let filtered_info = serde_json::json!({
-        "title": movie.get("title").and_then(|t| t.as_str()).unwrap_or(""),
         "original_title": movie.get("original_title").and_then(|t| t.as_str()).unwrap_or(""),
+        "title": movie.get("title").and_then(|t| t.as_str()).unwrap_or(""),
         "overview": movie.get("overview").and_then(|t| t.as_str()).unwrap_or(""),
         "release_date": movie.get("release_date").and_then(|t| t.as_str()).unwrap_or(""),
         "poster_path": movie.get("poster_path").and_then(|t| t.as_str())
@@ -384,8 +388,8 @@ pub(crate) async fn fetch_tv_info_from_tmdb(series_info: &SeriesInfo, api_key: &
 
     // 构建我们需要的信息
     let filtered_info = serde_json::json!({
-        "title": episode_info.get("name").and_then(|t| t.as_str()).unwrap_or(""),
         "original_title": series.get("original_name").and_then(|t| t.as_str()).unwrap_or(""),
+        "title": series.get("name").and_then(|t| t.as_str()).unwrap_or(""),
         "overview": series.get("overview").and_then(|t| t.as_str()).unwrap_or(""),
         "release_date": series.get("release_date").and_then(|t| t.as_str()).unwrap_or(""),
         "poster_path": series.get("poster_path").and_then(|t| t.as_str())
@@ -393,7 +397,7 @@ pub(crate) async fn fetch_tv_info_from_tmdb(series_info: &SeriesInfo, api_key: &
             .unwrap_or_default(),
         "vote_average": season_info.get("vote_average").and_then(|t| t.as_f64()).unwrap_or(0.0),
         "genres": genres,
-        "series_title": series.get("name").and_then(|t| t.as_str()).unwrap_or(""),
+        "episode_title": episode_info.get("name").and_then(|t| t.as_str()).unwrap_or(""),
         "episode_overview": episode_info.get("overview").and_then(|t| t.as_str()).unwrap_or("")
     });
     
@@ -572,43 +576,5 @@ pub fn parse_series_info(filename: &str) -> SeriesInfo {
         season: 1,
         episode: 1,
         is_series: false,
-    }
-}
-
-
-
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn match_sutitles() {
-        let temp_file_path = "C:\\Users\\yzok0\\Videos\\Transformers.One.2024.HDR.2160p.WEB.h265-ETHEL[TGx]\\Transformers.One.2024.HDR.2160p.WEB.h265-ETHEL.mkv";
-        let subtitle_stem = "Transformers.One.xx.2024.HDR.2160p.WEB.h265-ETHEL.简体.srt";
-
-        let language_keywords = ["zh", "chs", "cn", "cht", "chinese", "chr", "简体", "简中", "繁中"];
-        let _language_pattern = regex::Regex::new(&format!(r"({})", language_keywords.join("|"))).ok(); // 匹配语言关键字    
-        
-        let series_info = parse_series_info(temp_file_path);
-        if series_info.is_series {
-            println!("Series: {:?}", series_info.is_series);
-            let series_pattern = format!(
-                "[\\s.]*S{:02}E{:02}*{}",
-                series_info.season,
-                series_info.episode,
-                language_keywords.join("|")
-            );
-            println!("Series pattern: {}", series_pattern);
-            let re = Regex::new(&series_pattern).unwrap();
-            if re.is_match(subtitle_stem) {
-                println!("Matched: {}", subtitle_stem);
-            }
-        }
-
-        if let Some(ep_pattern) = &_language_pattern {
-            if ep_pattern.is_match(&subtitle_stem) {
-                println!("Episode: {:?}", ep_pattern.captures(&subtitle_stem));
-            }
-        }
     }
 }
