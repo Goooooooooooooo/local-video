@@ -176,10 +176,12 @@ async fn scan_folder(path: String, db: State<'_, DbState>, settings: Settings) -
     }
 
     // 最后获取所有视频
-    tokio::task::spawn_blocking(move || {
-        let conn = db.lock().unwrap();
-        db::get_all_videos(&conn).map_err(|e| e.to_string())
-    }).await.unwrap()
+    let new_videos = new_videos.lock().unwrap().clone();
+    Ok(new_videos)
+    // tokio::task::spawn_blocking(move || {
+    //     let conn = db.lock().unwrap();
+    //     db::get_all_videos(&conn).map_err(|e| e.to_string())
+    // }).await.unwrap()
 }
 
 #[tauri::command]

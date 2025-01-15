@@ -192,11 +192,11 @@ function showVideoDetails(video: VideoInfo): void {
 async function selectAndScanFolder(): Promise<void> {
   try {
     let tempVideos: VideoInfo[] = await invoke<VideoInfo[]>('select_and_scan_folder');
-    _simpleAlert.showSuccess(`已添加：${tempVideos.length}!`, { duration: 5000 });
     if (tempVideos.length === 0) {
       return;
     }
-    _videos = tempVideos;
+    _simpleAlert.showSuccess(`已添加：${tempVideos.length}!`, { duration: 5000 });
+    _videos = [..._videos, ...tempVideos];
     displayVideos(tempVideos);
   } catch (error) {
     console.error('Error scanning folder:', error);

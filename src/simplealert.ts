@@ -14,6 +14,7 @@ class SimpleAlert {
         this.alertContainer.style.left = '50%';
         this.alertContainer.style.transform = 'translateX(-50%)';
         this.alertContainer.style.zIndex = '10000';
+        this.alertContainer.style.minWidth = '300px'; // 调整初始宽度
         this.alertContainer.style.maxWidth = '500px'; // 调整初始宽度
         this.alertContainer.style.display = 'flex';
         this.alertContainer.style.flexDirection = 'column';
