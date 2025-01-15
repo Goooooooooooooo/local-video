@@ -31,3 +31,10 @@ reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1.0", features = ["full"] }
 regex = "1.5"
 once_cell = "1.20.2"
+
+[profile.release]
+panic = "abort"     #当发生panic时，去除昂贵的panic 清理逻辑
+codegen-units = 1   #一个接一个的编译 crate， 以便编译器能够更好的进行优化
+lto = true          #启用链接优化
+opt-level = "s"     #为二进制大小进行优化
+strip = true        #去除调试符号
