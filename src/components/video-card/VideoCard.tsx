@@ -1,6 +1,7 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { VideoInfo } from "../../types.ts";
 import "./VideoCard.css";
+import simpleAlert from "../simplealert.ts";
 
 interface CardProps {
   key: string,
@@ -31,11 +32,20 @@ const VideoCard = (props: CardProps) => {
     return path;
   }
 
+  const handlePlayVideo = async () => {
+    try {
+      await invoke('play_video', { video: video });
+    } catch (error) {
+      console.error('Error playing video:', error);
+      simpleAlert.error('播放视频时出错：' + error);
+    }
+  }
+
   return (
     <div className="video-card" onClick={props.onClick}>
       <div className="video-thumbnail">
           <img src={load_image(video.thumbnail)} alt={title} />
-          <div className="card-play-button" />
+          <div className="card-play-button" onClick={(e) => { e.stopPropagation(); handlePlayVideo(); }} />
       </div>
       <div className="video-info">
           <h3 className="video-title">
