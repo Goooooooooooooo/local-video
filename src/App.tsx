@@ -116,7 +116,10 @@ function App() {
 
   const handleDeleteVideo = async (video: VideoInfo) => {
     try {
-      simpleAlert.confirm('您确定要删除这个项目吗？', 
+      const title = video.is_series 
+      ? `${video.title} S${video.season.toString().padStart(2, '0')}E${video.episode.toString().padStart(2, '0')} ${video.episode_title}`
+      : video.title || video.original_title;
+      simpleAlert.confirm('您确定要删除这个项目吗？'+`<br/>${title}`, 
         `<div style="font-size:16px;"><input type="checkbox"> 同时删除文件</div>`, 
         async (confirmed, isChecked) => {
             if (confirmed) {
