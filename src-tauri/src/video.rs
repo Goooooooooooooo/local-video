@@ -289,9 +289,7 @@ pub(crate) async fn fetch_video_info_from_tmdb(video_name: &String, api_key: &St
         "title": movie.get("title").and_then(|t| t.as_str()).unwrap_or(""),
         "overview": movie.get("overview").and_then(|t| t.as_str()).unwrap_or(""),
         "release_date": movie.get("release_date").and_then(|t| t.as_str()).unwrap_or(""),
-        "poster_path": movie.get("poster_path").and_then(|t| t.as_str())
-            .map(|path| format!("https://image.tmdb.org/t/p/w500{}", path))
-            .unwrap_or_default(),
+        "poster_path": movie.get("poster_path").and_then(|t| t.as_str()).unwrap_or_default(),
         "vote_average": movie.get("vote_average").and_then(|t| t.as_f64()).unwrap_or(0.0),
         "genres": genres,
     });
@@ -392,9 +390,7 @@ pub(crate) async fn fetch_tv_info_from_tmdb(series_info: &SeriesInfo, api_key: &
         "title": series.get("name").and_then(|t| t.as_str()).unwrap_or(""),
         "overview": series.get("overview").and_then(|t| t.as_str()).unwrap_or(""),
         "release_date": series.get("release_date").and_then(|t| t.as_str()).unwrap_or(""),
-        "poster_path": series.get("poster_path").and_then(|t| t.as_str())
-            .map(|path| format!("https://image.tmdb.org/t/p/w500{}", path))
-            .unwrap_or_default(),
+        "poster_path": series.get("poster_path").and_then(|t| t.as_str()).unwrap_or_default(),
         "vote_average": season_info.get("vote_average").and_then(|t| t.as_f64()).unwrap_or(0.0),
         "genres": genres,
         "episode_title": episode_info.get("name").and_then(|t| t.as_str()).unwrap_or(""),
@@ -402,6 +398,31 @@ pub(crate) async fn fetch_tv_info_from_tmdb(series_info: &SeriesInfo, api_key: &
     });
     
     return Ok(serde_json::to_string(&filtered_info).unwrap());
+}
+
+pub(crate) async fn save_poster(path: &Path, poster_path: &String) -> Result<String, String> {
+    // 获取视频文件的目录
+    let poster_dir = path.parent().unwrap().join("poster"); // 创建 poster 文件夹路径
+    println!("{}", poster_dir.display());
+    // 确保 poster 目录存在
+    if !poster_dir.exists() {
+        fs::create_dir_all(&poster_dir).unwrap_or_else(|_| {
+            log_error!("Failed to create poster directory");
+        });
+    }
+    let poster_filename = Path::new(poster_path).file_name().unwrap().to_str().unwrap();
+    // 创建海报文件的完整路径
+    let poster_url = format!("https://image.tmdb.org/t/p/w500{}", poster_path);
+    println!("封面图片URL：{}", poster_url);
+    let poster_file = poster_dir.join(poster_filename);
+    println!("封面图片地址：{}", poster_file.display());
+    if !poster_file.exists() {
+        println!("封面图片不存在，下载图片");
+        let bytes = api::get_image(&poster_url).await.map_err(|e| e.to_string())?;
+        // 将响应体写入文件
+        fs::write(&poster_file, &bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(poster_file.to_string_lossy().to_string())
 }
 
 fn get_episode_info(season_info: &serde_json::Value, episode_number: u32) -> Option<&serde_json::Value> {

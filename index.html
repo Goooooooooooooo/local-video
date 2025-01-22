@@ -2,38 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>本地视频管理器</title>
-    <script type="module" src="/src/main.ts" defer></script>
+    <title>本地视频管理</title>
   </head>
 
   <body>
-    <div class="app-container">
-      <!-- 左侧菜单 -->
-      <aside class="sidebar">
-        <nav>
-          <ul>
-            <li><a href="#" class="all-button active">所有视频</a></li>
-            <li><a href="#" class="recently-played-button">最近播放</a></li>
-            <li><a href="#" class="mv-button">电影</a></li>
-            <li><a href="#" class="tv-button">剧集</a></li>
-            <!-- <li><a href="#">收藏夹</a></li> -->
-             <li><a href="#" class="scan-button">扫描文件夹</a></li>
-            <li><a href="#" class="settings-button">设置</a></li>
-          </ul>
-        </nav>
-      </aside>
-
-      <!-- 右侧内容区 -->
-      <main class="content">
-        <div class="video-grid" id="video-grid">
-          <!-- 视频卡片将通过 JavaScript 动态添加 -->
-        </div>
-      </main>
-
-      <!-- 分隔条 -->
-      <div class="resizer" id="resizer"></div>
-    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

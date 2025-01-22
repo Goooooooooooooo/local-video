@@ -21,6 +21,25 @@ pub async fn get_data(url: &str) -> Result<String, reqwest::Error> {
     Ok(body)
 }
 
+/// 下载图片数据
+/// 
+/// # 参数
+/// * `url` - 图片的 URL
+/// 
+/// # 返回
+/// * `Result<Vec<u8>, reqwest::Error>` - 成功返回图片字节数据，失败返回错误
+/// 
+/// # 示例
+/// ```rust
+/// let image_data = get_image("https://example.com/image.jpg").await?;
+/// std::fs::write("image.jpg", &image_data)?;
+/// ```
+pub async fn get_image(url: &str) -> Result<Vec<u8>, reqwest::Error> {
+    let response = reqwest::get(url).await?;
+    let bytes = response.bytes().await?;
+    Ok(bytes.to_vec())
+}
+
 /// API 响应的数据结构
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse {
