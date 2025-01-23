@@ -1,7 +1,6 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { VideoInfo } from "../../types.ts";
 import "./VideoCard.css";
-import simpleAlert from "../simplealert.ts";
+import { videocommon } from "../../utils.ts";
 
 interface CardProps {
   key: string,
@@ -20,31 +19,14 @@ const VideoCard = (props: CardProps) => {
     props.onDelete(video);
   };
 
-  const isLocalPathExists = (path: string): boolean => {
-    if (path.startsWith('/assets')) return false;
-    return (/^[a-zA-Z]:\\/.test(path) || /^\//.test(path));
-  }
-
-  const load_image = (path: string) => {
-    if (isLocalPathExists(path)) {
-      return convertFileSrc(path);
-    }
-    return path;
-  }
-
   const handlePlayVideo = async () => {
-    try {
-      await invoke('play_video', { video: video });
-    } catch (error) {
-      console.error('Error playing video:', error);
-      simpleAlert.error('播放视频时出错：' + error);
-    }
+    await videocommon.handlePlayVideo(video);
   }
 
   return (
     <div className="video-card" onClick={props.onClick}>
       <div className="video-thumbnail">
-          <img src={load_image(video.thumbnail)} alt={title} />
+          <img src={videocommon.convertFileSrc(video.thumbnail)} alt={title} />
           <div className="card-play-button" onClick={(e) => { e.stopPropagation(); handlePlayVideo(); }} />
       </div>
       <div className="video-info">

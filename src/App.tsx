@@ -1,16 +1,18 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
-import VideoCard from "./components/video-card/VideoCard";
 import { VideoInfo } from "./types";
-import simpleAlert from "./components/simplealert";
-import Modal from "./components/modal/Modal";
+import VideoCard from "./components/video-card/VideoCard";
 import VideoDetail from "./components/video-detail/VideoDetail";
 import SettingsPage from "./pages/Settings";
+import simpleAlert from "./components/simplealert";
+import Modal from "./components/modal/Modal";
+import Loading from "./components/loading/Loading";
 
 function App() {
   const [leftWidth, setLeftWidth] = useState(200); // 左侧初始宽度
   const [isResizing, setIsResizing] = useState(false); // 是否正在拖动
+  const [isLoading, setIsLoading] = useState(false);
   const [videos, setVideos] = useState<VideoInfo[]>([]);
   const [filter, setFilter] = useState<string>("all"); // 当前过滤条件
   const [selectedVideo, setSelectedVideo] = useState<VideoInfo | null>(null);
@@ -95,6 +97,7 @@ function App() {
 
   const handleScanFoldersClick = async () => {
     console.log('扫描文件夹');
+    setIsLoading(true); // 显示 Loading
     try {
       let tempVideos: VideoInfo[] = await invoke<VideoInfo[]>('select_and_scan_folder');
       if (tempVideos.length === 0) {
@@ -105,6 +108,8 @@ function App() {
     } catch (error) {
       console.error('Error scanning folder:', error);
       simpleAlert.error('扫描文件夹时出错：' + error);
+    } finally {
+      setIsLoading(false); // 操作完成后隐藏 Loading
     }
   };
 
@@ -177,20 +182,29 @@ function App() {
           onDoubleClick={handleDoubleClick}
           onMouseDown={handleMouseDown} style={{ cursor: "ew-resize", left: `${leftWidth}px` }}></div>
         <div className="content">
-        {
-        currentPage === "home" && 
-          <div className="video-grid" id="video-grid">
-            {getVideos(filter).map((video) => (
-                <VideoCard key={video.id} data={video}  onDelete={handleDeleteVideo} onClick={() => handleCardClick(video)} />
-              ))}
-            <Modal isOpen={selectedVideo !== null} onClose={handleCloseModal}>
-              {selectedVideo && (<VideoDetail data={selectedVideo} />)}
-            </Modal>
-          </div>
-        }
-        {
-          currentPage === "Settings" && <SettingsPage />
-        }
+          {
+            isLoading && <Loading />
+          }
+          {
+            currentPage === "home" && 
+            <div className="video-grid" id="video-grid">
+              {
+                getVideos(filter).map((video) => (
+                  <VideoCard key={video.id} 
+                    data={video}  
+                    onDelete={handleDeleteVideo} 
+                    onClick={() => handleCardClick(video)} 
+                  />
+                ))
+              }
+              <Modal isOpen={selectedVideo !== null} onClose={handleCloseModal}>
+                {selectedVideo && (<VideoDetail data={selectedVideo} />)}
+              </Modal>
+            </div>
+          }
+          {
+            currentPage === "Settings" && <SettingsPage />
+          }
         </div>
     </main>
   );

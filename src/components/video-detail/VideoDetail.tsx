@@ -1,7 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
 import { VideoInfo } from '../../types';
 import './VideoDetail.css';
-import simpleAlert from '../simplealert';
+import { videocommon } from '../../utils';
 
 interface CardProps {
   data: VideoInfo,
@@ -11,17 +10,12 @@ const VideoDetail = (props: CardProps) => {
   const video = props.data;
 
   const handlePlayVideo = async () => {
-    try {
-      await invoke('play_video', { video: video });
-    } catch (error) {
-      console.error('Error playing video:', error);
-      simpleAlert.error('播放视频时出错：' + error);
-    }
+    await videocommon.handlePlayVideo(video);
   }
 
   return (
     <div className="video-details">
-      <img src={video.thumbnail} style={{ width: '200px', float: 'left', marginRight: '20px' }} />
+      <img src={videocommon.convertFileSrc(video.thumbnail)} style={{ width: '200px', float: 'left', marginRight: '20px', borderRadius: '5px' }} />
       <h2>{video.is_series ? video.episode_title : video.title}</h2>
       <p>
         <strong>时长：</strong>{video.duration}
