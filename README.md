@@ -1,5 +1,13 @@
 # 不定时更新中......
 
+# 本地视频管理
+
+扫描指定文件夹，获取视频文件，自动从TMDB根据文件名匹配视频信息和海报（需要TMDB API KEY）
+
+更加方便管理本地既存的视频文件（支持显示mkv视频文件时长，MP4暂不支持（功能还没写））
+
+可以删除，支持同时删除文件
+
 # Tauri + React + Typescript
 
 This template should help get you started developing with Tauri in vanilla HTML, CSS and Typescript.
