@@ -2136,7 +2136,7 @@ checksum = "4ee93343901ab17bd981295f2cf0026d4ad018c7c31ba84549a4ddbb47a45104"
 
 [[package]]
 name = "local-video"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "md5",
