@@ -15,7 +15,8 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [videos, setVideos] = useState<VideoInfo[]>([]);
   const [filter, setFilter] = useState<string>("all"); // 当前过滤条件
-  const [selectedVideo, setSelectedVideo] = useState<VideoInfo | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<VideoInfo>();
+  const [isShowModal, setIsShowModal] = useState(false);
   const [currentPage, setCurrentPage] = useState<string>("home"); // 当前页面
 
   // 开始拖动
@@ -158,10 +159,11 @@ function App() {
   const handleCardClick = (video: VideoInfo) => {
     // console.log("🚀 ~ handleCardClick ~ video:", video)
     setSelectedVideo(video);
+    setIsShowModal(true);
   };
 
   const handleCloseModal = () => {
-    setSelectedVideo(null);
+    setIsShowModal(false);
   };
 
   return (
@@ -183,7 +185,7 @@ function App() {
           onMouseDown={handleMouseDown} style={{ cursor: "ew-resize", left: `${leftWidth}px` }}></div>
         <div className="content">
           {
-            isLoading && <Loading />
+            isLoading && <Loading duration={30000} />
           }
           {
             currentPage === "home" && 
@@ -197,8 +199,8 @@ function App() {
                   />
                 ))
               }
-              <Modal isOpen={selectedVideo !== null} onClose={handleCloseModal}>
-                {selectedVideo && (<VideoDetail data={selectedVideo} />)}
+              <Modal isOpen={isShowModal} onClose={handleCloseModal}>
+                {selectedVideo && <VideoDetail data={selectedVideo} />}
               </Modal>
             </div>
           }

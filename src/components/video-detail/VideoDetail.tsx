@@ -3,12 +3,13 @@ import './VideoDetail.css';
 import { videocommon } from '../../utils';
 
 interface CardProps {
-  data: VideoInfo,
+  data: VideoInfo | undefined,
 }
 
 const VideoDetail = (props: CardProps) => {
   const video = props.data;
-
+  if (!video) return;
+  
   const handlePlayVideo = async () => {
     await videocommon.handlePlayVideo(video);
   }
