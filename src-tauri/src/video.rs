@@ -143,7 +143,7 @@ fn choose_best_subtitle(video: &VideoInfo, subtitles: Vec<PathBuf>) -> Option<Pa
 }
 
 /// 清理视频文件名以获得更好的搜索结果
-pub(crate) fn clean_video_name(filename: &str) -> String {
+pub(crate) fn clean_video_name(filename: &str) -> (String, String) {
     // 移除扩展名
     let name = filename.strip_suffix(std::path::Path::new(filename)
         .extension()
@@ -173,8 +173,9 @@ pub(crate) fn clean_video_name(filename: &str) -> String {
                 if let Some(year) = year_match.get(2) {
                     let year_str = year.as_str().to_string();
                     println!("video year: {}", year_str);
+                    return (cleaned, year_str);
                 }
-                return cleaned;
+                return (cleaned, "".to_string());
             }
         }
     }
@@ -232,7 +233,7 @@ pub(crate) fn clean_video_name(filename: &str) -> String {
     }
     
     log_debug!("Original: {} Cleaned: {}", filename, best_result);
-    best_result
+    (best_result, "".to_string())
 }
 
 /// 从 TMDb API 获取视频信息并过滤结果
@@ -244,16 +245,17 @@ pub(crate) fn clean_video_name(filename: &str) -> String {
 /// * `Result<String, String>` - 成功返回过滤后的单个视频信息，失败返回错误信息
 pub(crate) async fn fetch_video_info_from_tmdb(video_name: &String, api_key: &String) -> Result<String, String> {
     let cleaned_name = clean_video_name(&video_name);
-    log_info!("************Searching for: {}************", cleaned_name);
+    log_info!("************Searching for: {:?}************", cleaned_name);
 
     let url = format!(
-        "https://api.themoviedb.org/3/search/movie?api_key={}&query={}&language=zh-CN",
+        "https://api.themoviedb.org/3/search/movie?api_key={}&query={}&language=zh-CN&year={}",
         api_key,
-        cleaned_name
+        cleaned_name.0,
+        cleaned_name.1
     );
 
     // 查找最优匹配结果
-    let best_match = match_video(&url, &cleaned_name).await?;
+    let best_match = match_video(&url, &cleaned_name.0).await?;
     log_info!("Found match: {}", serde_json::to_string_pretty(&best_match).unwrap());
 
     if best_match.is_empty() || best_match.eq_ignore_ascii_case("null") {
@@ -324,9 +326,10 @@ pub(crate) async fn fetch_tv_info_from_tmdb(series_info: &SeriesInfo, api_key: &
 
     if series.is_none() {
         let url = format!(
-            "https://api.themoviedb.org/3/search/tv?api_key={}&query={}&language=zh-CN",
+            "https://api.themoviedb.org/3/search/tv?api_key={}&query={}&language=zh-CN&year={}",
             api_key,
-            cleaned_name
+            cleaned_name,
+            &series_info.year
         );
     
         let best_match = match_video(&url, &cleaned_name).await?;
@@ -536,9 +539,14 @@ pub struct SeriesInfo {
     pub season: i32,
     pub episode: i32,
     pub is_series: bool,
+    pub year: String,
 }
 
 pub fn parse_series_info(filename: &str) -> SeriesInfo {
+    let year_regex = Regex::new(r"(19|20)\d{2}").unwrap();
+    let extracted_year = year_regex.captures(filename)
+        .and_then(|caps| caps.get(0).map(|m| m.as_str().to_string()));
+
     // 常见的剧集命名模式
     let patterns = [
         // S01E01 格式
@@ -560,6 +568,7 @@ pub fn parse_series_info(filename: &str) -> SeriesInfo {
                         season: caps.get(2).unwrap().as_str().parse().unwrap_or(1),
                         episode: caps.get(3).unwrap().as_str().parse().unwrap_or(1),
                         is_series: true,
+                        year: extracted_year.unwrap_or_default()
                     };
                 }
                 r"(.+?)第(\d{1,2})季第(\d{1,2})集" => {
@@ -568,6 +577,7 @@ pub fn parse_series_info(filename: &str) -> SeriesInfo {
                         season: caps.get(2).unwrap().as_str().parse().unwrap_or(1),
                         episode: caps.get(3).unwrap().as_str().parse().unwrap_or(1),
                         is_series: true,
+                        year: extracted_year.unwrap_or_default()
                     };
                 }
                 r"(.+?)第(\d{1,2})集" => {
@@ -576,6 +586,7 @@ pub fn parse_series_info(filename: &str) -> SeriesInfo {
                         season: 1,
                         episode: caps.get(2).unwrap().as_str().parse().unwrap_or(1),
                         is_series: true,
+                        year: extracted_year.unwrap_or_default()
                     };
                 }
                 r"(?i)(.+?)[\s.]*E(\d{1,2})" => {
@@ -584,6 +595,7 @@ pub fn parse_series_info(filename: &str) -> SeriesInfo {
                         season: 1,
                         episode: caps.get(2).unwrap().as_str().parse().unwrap_or(1),
                         is_series: true,
+                        year: extracted_year.unwrap_or_default()
                     };
                 }
                 _ => {}
@@ -597,5 +609,6 @@ pub fn parse_series_info(filename: &str) -> SeriesInfo {
         season: 1,
         episode: 1,
         is_series: false,
+        year: extracted_year.unwrap_or_default()
     }
 }
